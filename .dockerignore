@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+**/.git
+**/coverage
+**/.angular
+.screenshots
+resources
+backend/.venv

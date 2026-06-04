@@ -8,7 +8,7 @@ import { ZoneDefinitionModel } from "../../shared/models/zone-definition.model";
 import { Mode } from "./mode.enum";
 import { DataStore } from "../../shared/data-store/data-store";
 import { TestingDataStore } from "../../shared/data-store/testing-datastore.service";
-import { TargetModule } from "../../shared/modules/target/desktop-target.module";
+import { TargetModule } from "../../shared/modules/target/web-target.module";
 import { UserSettings } from "@elevate/shared/models/user-settings/user-settings.namespace";
 import { ZoneType } from "@elevate/shared/enums/zone-type.enum";
 import { UserZonesModel } from "@elevate/shared/models/user-settings/user-zones.model";

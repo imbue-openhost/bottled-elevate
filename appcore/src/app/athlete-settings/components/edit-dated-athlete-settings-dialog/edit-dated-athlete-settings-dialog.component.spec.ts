@@ -10,7 +10,7 @@ import { DatedAthleteSettingsAction } from "./dated-athlete-settings-action.enum
 import { UserSettingsService } from "../../../shared/services/user-settings/user-settings.service";
 import { DataStore } from "../../../shared/data-store/data-store";
 import { TestingDataStore } from "../../../shared/data-store/testing-datastore.service";
-import { TargetModule } from "../../../shared/modules/target/desktop-target.module";
+import { TargetModule } from "../../../shared/modules/target/web-target.module";
 import { UserSettings } from "@elevate/shared/models/user-settings/user-settings.namespace";
 import { DatedAthleteSettings } from "@elevate/shared/models/athlete/athlete-settings/dated-athlete-settings.model";
 import DesktopUserSettings = UserSettings.DesktopUserSettings;

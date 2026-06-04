@@ -8,7 +8,7 @@ import { YearProgressForOverviewModel } from "../shared/models/year-progress-for
 import { YearProgressStyleModel } from "../year-progress-graph/models/year-progress-style.model";
 import moment from "moment";
 import { YearToDateProgressConfigModel } from "../shared/models/year-to-date-progress-config.model";
-import { TargetModule } from "../../shared/modules/target/desktop-target.module";
+import { TargetModule } from "../../shared/modules/target/web-target.module";
 import { ElevateSport } from "@elevate/shared/enums/elevate-sport.enum";
 
 describe("YearProgressOverviewDialogComponent", () => {

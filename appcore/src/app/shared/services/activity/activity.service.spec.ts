@@ -2,12 +2,10 @@ import { ActivityService } from "./activity.service";
 import { TestBed } from "@angular/core/testing";
 import { FakeActivityHelper } from "../../../fitness-trend/shared/helpers/fake-activity.helper";
 import { SharedModule } from "../../shared.module";
-import { IpcRendererTunnelServiceMock } from "../../../desktop/ipc/ipc-renderer-tunnel-service.mock";
 import { DataStore } from "../../data-store/data-store";
 import ACTIVITIES_FIXTURES from "../../../../shared-fixtures/activities-2015.fixture.json";
-import { IPC_TUNNEL_SERVICE } from "../../../desktop/ipc/ipc-tunnel-service.token";
 import { TestingDataStore } from "../../data-store/testing-datastore.service";
-import { TargetModule } from "../../modules/target/desktop-target.module";
+import { TargetModule } from "../../modules/target/web-target.module";
 import { CoreModule } from "../../../core/core.module";
 import _ from "lodash";
 import { Activity } from "@elevate/shared/models/sync/activity.model";
@@ -28,7 +26,6 @@ describe("ActivityService", () => {
       imports: [CoreModule, SharedModule, TargetModule],
       providers: [
         { provide: DataStore, useClass: TestingDataStore },
-        { provide: IPC_TUNNEL_SERVICE, useClass: IpcRendererTunnelServiceMock }
       ]
     });
 

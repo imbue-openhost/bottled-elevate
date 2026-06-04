@@ -50,82 +50,7 @@
             ]
           },
           "configurations": {
-            "extension": {
-              "optimization": {
-                "scripts": true,
-                "styles": {
-                  "minify": true,
-                  "inlineCritical": false
-                },
-                "fonts": true
-              },
-              "outputHashing": "none",
-              "sourceMap": true,
-              "namedChunks": false,
-              "extractLicenses": false,
-              "statsJson": false,
-              "progress": true,
-              "vendorChunk": false,
-              "buildOptimizer": false,
-              "budgets": [
-                {
-                  "type": "anyComponentStyle",
-                  "maximumWarning": "6kb"
-                }
-              ],
-              "fileReplacements": [
-                {
-                  "replace": "src/app/boot/target-boot.module.ts",
-                  "with": "src/app/boot/extension-boot.module.ts"
-                },
-                {
-                  "replace": "src/app/shared/modules/target/target.module.ts",
-                  "with": "src/app/shared/modules/target/extension-target.module.ts"
-                }
-              ]
-            },
-            "extension-prod": {
-              "optimization": {
-                "scripts": true,
-                "styles": {
-                  "minify": true,
-                  "inlineCritical": false
-                },
-                "fonts": true
-              },
-              "outputHashing": "all",
-              "sourceMap": false,
-              "namedChunks": false,
-              "extractLicenses": true,
-              "vendorChunk": false,
-              "buildOptimizer": true,
-              "fileReplacements": [
-                {
-                  "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.prod.ts"
-                },
-                {
-                  "replace": "src/app/boot/target-boot.module.ts",
-                  "with": "src/app/boot/extension-boot.module.ts"
-                },
-                {
-                  "replace": "src/app/shared/modules/target/target.module.ts",
-                  "with": "src/app/shared/modules/target/extension-target.module.ts"
-                }
-              ],
-              "budgets": [
-                {
-                  "type": "initial",
-                  "maximumWarning": "3mb",
-                  "maximumError": "5mb"
-                },
-                {
-                  "type": "anyComponentStyle",
-                  "maximumWarning": "6kb"
-                }
-              ]
-            },
-            "desktop": {
+            "web": {
               "optimization": false,
               "outputHashing": "none",
               "sourceMap": true,
@@ -142,29 +67,22 @@
                   "maximumWarning": "6kb"
                 }
               ],
-              "styles": [
-                "src/styles.scss",
-                "node_modules/katex/dist/katex.css",
-                "node_modules/github-markdown-css/github-markdown.css",
-                "node_modules/metrics-graphics/dist/metricsgraphics.css",
-                "node_modules/mapbox-gl/dist/mapbox-gl.css"
-              ],
               "fileReplacements": [
                 {
                   "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.desktop.ts"
+                  "with": "src/environments/environment.web.ts"
                 },
                 {
                   "replace": "src/app/boot/target-boot.module.ts",
-                  "with": "src/app/boot/desktop-boot.module.ts"
+                  "with": "src/app/boot/web-boot.module.ts"
                 },
                 {
                   "replace": "src/app/shared/modules/target/target.module.ts",
-                  "with": "src/app/shared/modules/target/desktop-target.module.ts"
+                  "with": "src/app/shared/modules/target/web-target.module.ts"
                 }
               ]
             },
-            "desktop-prod": {
+            "web-prod": {
               "budgets": [
                 {
                   "type": "anyComponentStyle",
@@ -178,25 +96,18 @@
               "extractLicenses": true,
               "vendorChunk": false,
               "buildOptimizer": true,
-              "styles": [
-                "src/styles.scss",
-                "node_modules/katex/dist/katex.css",
-                "node_modules/github-markdown-css/github-markdown.css",
-                "node_modules/metrics-graphics/dist/metricsgraphics.css",
-                "node_modules/mapbox-gl/dist/mapbox-gl.css"
-              ],
               "fileReplacements": [
                 {
                   "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.desktop.prod.ts"
+                  "with": "src/environments/environment.web.prod.ts"
                 },
                 {
                   "replace": "src/app/boot/target-boot.module.ts",
-                  "with": "src/app/boot/desktop-boot.module.ts"
+                  "with": "src/app/boot/web-boot.module.ts"
                 },
                 {
                   "replace": "src/app/shared/modules/target/target.module.ts",
-                  "with": "src/app/shared/modules/target/desktop-target.module.ts"
+                  "with": "src/app/shared/modules/target/web-target.module.ts"
                 }
               ]
             }

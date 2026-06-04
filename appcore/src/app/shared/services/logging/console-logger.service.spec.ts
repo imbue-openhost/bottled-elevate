@@ -3,7 +3,7 @@ import { LoggerService } from "./logger.service";
 import { CoreModule } from "../../../core/core.module";
 import { SharedModule } from "../../shared.module";
 import { environment } from "../../../../environments/environment";
-import { TargetModule } from "../../modules/target/desktop-target.module";
+import { TargetModule } from "../../modules/target/web-target.module";
 
 describe("ConsoleLoggerService", () => {
   let service: LoggerService;

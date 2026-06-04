@@ -6,9 +6,7 @@ import { CoreModule } from "../../../core/core.module";
 import _ from "lodash";
 import { DataStore } from "../../data-store/data-store";
 import { TestingDataStore } from "../../data-store/testing-datastore.service";
-import { TargetModule } from "../../modules/target/desktop-target.module";
-import { IpcRendererTunnelServiceMock } from "../../../desktop/ipc/ipc-renderer-tunnel-service.mock";
-import { IPC_TUNNEL_SERVICE } from "../../../desktop/ipc/ipc-tunnel-service.token";
+import { TargetModule } from "../../modules/target/web-target.module";
 import { UserSettings } from "@elevate/shared/models/user-settings/user-settings.namespace";
 import { ZoneModel } from "@elevate/shared/models/zone.model";
 import { BuildTarget } from "@elevate/shared/enums/build-target.enum";
@@ -26,7 +24,6 @@ describe("UserSettingsService", () => {
       imports: [CoreModule, SharedModule, TargetModule],
       providers: [
         { provide: DataStore, useClass: TestingDataStore },
-        { provide: IPC_TUNNEL_SERVICE, useClass: IpcRendererTunnelServiceMock }
       ]
     });
 

@@ -7,9 +7,7 @@ import { AthleteSettingsModule } from "../../athlete-settings.module";
 import { UserSettingsService } from "../../../shared/services/user-settings/user-settings.service";
 import { DataStore } from "../../../shared/data-store/data-store";
 import { TestingDataStore } from "../../../shared/data-store/testing-datastore.service";
-import { TargetModule } from "../../../shared/modules/target/desktop-target.module";
-import { IPC_TUNNEL_SERVICE } from "../../../desktop/ipc/ipc-tunnel-service.token";
-import { IpcRendererTunnelServiceMock } from "../../../desktop/ipc/ipc-renderer-tunnel-service.mock";
+import { TargetModule } from "../../../shared/modules/target/web-target.module";
 import { UserSettings } from "@elevate/shared/models/user-settings/user-settings.namespace";
 import { AthleteSettings } from "@elevate/shared/models/athlete/athlete-settings/athlete-settings.model";
 import { MeasureSystem } from "@elevate/shared/enums/measure-system.enum";
@@ -25,7 +23,6 @@ describe("AthleteSettingsFormComponent", () => {
       imports: [CoreModule, SharedModule, TargetModule, AthleteSettingsModule],
       providers: [
         { provide: DataStore, useClass: TestingDataStore },
-        { provide: IPC_TUNNEL_SERVICE, useClass: IpcRendererTunnelServiceMock }
       ]
     }).compileComponents();
 

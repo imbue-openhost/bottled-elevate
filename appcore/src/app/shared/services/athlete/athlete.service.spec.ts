@@ -6,9 +6,7 @@ import { DataStore } from "../../data-store/data-store";
 import { TestingDataStore } from "../../data-store/testing-datastore.service";
 import { CoreModule } from "../../../core/core.module";
 import { SharedModule } from "../../shared.module";
-import { TargetModule } from "../../modules/target/desktop-target.module";
-import { IpcRendererTunnelServiceMock } from "../../../desktop/ipc/ipc-renderer-tunnel-service.mock";
-import { IPC_TUNNEL_SERVICE } from "../../../desktop/ipc/ipc-tunnel-service.token";
+import { TargetModule } from "../../modules/target/web-target.module";
 import { AthleteModel } from "@elevate/shared/models/athlete/athlete.model";
 import { AthleteSettings } from "@elevate/shared/models/athlete/athlete-settings/athlete-settings.model";
 import { Gender } from "@elevate/shared/models/athlete/gender.enum";
@@ -33,7 +31,6 @@ describe("AthleteService", () => {
       imports: [CoreModule, SharedModule, TargetModule],
       providers: [
         { provide: DataStore, useClass: TestingDataStore },
-        { provide: IPC_TUNNEL_SERVICE, useClass: IpcRendererTunnelServiceMock }
       ]
     });
 

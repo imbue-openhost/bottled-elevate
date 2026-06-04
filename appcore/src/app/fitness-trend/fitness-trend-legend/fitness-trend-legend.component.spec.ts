@@ -3,7 +3,7 @@ import { FitnessTrendLegendComponent } from "./fitness-trend-legend.component";
 import { CoreModule } from "../../core/core.module";
 import { SharedModule } from "../../shared/shared.module";
 import { FitnessTrendModule } from "../fitness-trend.module";
-import { TargetModule } from "../../shared/modules/target/desktop-target.module";
+import { TargetModule } from "../../shared/modules/target/web-target.module";
 
 describe("FitnessTrendLegendComponent", () => {
   let component: FitnessTrendLegendComponent;

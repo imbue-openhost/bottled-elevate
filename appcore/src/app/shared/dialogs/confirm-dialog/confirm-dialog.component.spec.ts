@@ -4,7 +4,7 @@ import { MAT_DIALOG_DATA, MatDialogRef } from "@angular/material/dialog";
 import { CoreModule } from "../../../core/core.module";
 import { SharedModule } from "../../shared.module";
 import { ConfirmDialogDataModel } from "./confirm-dialog-data.model";
-import { TargetModule } from "../../modules/target/desktop-target.module";
+import { TargetModule } from "../../modules/target/web-target.module";
 
 describe("ConfirmDialogComponent", () => {
   const dialogTitle = "Hello World";

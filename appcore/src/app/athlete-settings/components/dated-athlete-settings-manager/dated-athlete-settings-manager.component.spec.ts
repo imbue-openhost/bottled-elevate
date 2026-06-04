@@ -6,10 +6,8 @@ import { AthleteSettingsModule } from "../../athlete-settings.module";
 import { AthleteService } from "../../../shared/services/athlete/athlete.service";
 import { DataStore } from "../../../shared/data-store/data-store";
 import { TestingDataStore } from "../../../shared/data-store/testing-datastore.service";
-import { TargetModule } from "../../../shared/modules/target/desktop-target.module";
-import { TargetBootModule } from "../../../boot/desktop-boot.module";
-import { IPC_TUNNEL_SERVICE } from "../../../desktop/ipc/ipc-tunnel-service.token";
-import { IpcRendererTunnelServiceMock } from "../../../desktop/ipc/ipc-renderer-tunnel-service.mock";
+import { TargetModule } from "../../../shared/modules/target/web-target.module";
+import { TargetBootModule } from "../../../boot/web-boot.module";
 import { DatedAthleteSettings } from "@elevate/shared/models/athlete/athlete-settings/dated-athlete-settings.model";
 import { AthleteSettings } from "@elevate/shared/models/athlete/athlete-settings/athlete-settings.model";
 import { Gender } from "@elevate/shared/models/athlete/gender.enum";
@@ -24,7 +22,6 @@ describe("DatedAthleteSettingsManagerComponent", () => {
       imports: [CoreModule, SharedModule, TargetBootModule, TargetModule, AthleteSettingsModule],
       providers: [
         { provide: DataStore, useClass: TestingDataStore },
-        { provide: IPC_TUNNEL_SERVICE, useClass: IpcRendererTunnelServiceMock }
       ]
     }).compileComponents();
 

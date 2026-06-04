@@ -7,7 +7,7 @@ import { SharedModule } from "../../shared/shared.module";
 import { CoreModule } from "../../core/core.module";
 import { DataStore } from "../../shared/data-store/data-store";
 import { TestingDataStore } from "../../shared/data-store/testing-datastore.service";
-import { TargetModule } from "../../shared/modules/target/desktop-target.module";
+import { TargetModule } from "../../shared/modules/target/web-target.module";
 import { ZonesSettingsModule } from "../zones-settings.module";
 
 describe("ZoneComponent", () => {

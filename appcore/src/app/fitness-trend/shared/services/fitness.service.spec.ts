@@ -15,10 +15,8 @@ import { SharedModule } from "../../../shared/shared.module";
 import { FitnessTrendModule } from "../../fitness-trend.module";
 import { DataStore } from "../../../shared/data-store/data-store";
 import { TestingDataStore } from "../../../shared/data-store/testing-datastore.service";
-import { TargetModule } from "../../../shared/modules/target/desktop-target.module";
-import { TargetBootModule } from "../../../boot/desktop-boot.module";
-import { IPC_TUNNEL_SERVICE } from "../../../desktop/ipc/ipc-tunnel-service.token";
-import { IpcRendererTunnelServiceMock } from "../../../desktop/ipc/ipc-renderer-tunnel-service.mock";
+import { TargetModule } from "../../../shared/modules/target/web-target.module";
+import { TargetBootModule } from "../../../boot/web-boot.module";
 import { ErrorHandler } from "@angular/core";
 import { MockElevateErrorHandler } from "../../../errors-handler/mock-elevate-error-handler";
 import { AthleteSnapshot } from "@elevate/shared/models/athlete/athlete-snapshot.model";
@@ -47,7 +45,6 @@ describe("FitnessService", () => {
       providers: [
         { provide: DataStore, useClass: TestingDataStore },
         { provide: ErrorHandler, useClass: MockElevateErrorHandler },
-        { provide: IPC_TUNNEL_SERVICE, useClass: IpcRendererTunnelServiceMock }
       ]
     });
 

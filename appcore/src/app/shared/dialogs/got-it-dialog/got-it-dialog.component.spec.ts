@@ -4,7 +4,7 @@ import { MAT_DIALOG_DATA, MatDialogRef } from "@angular/material/dialog";
 import { SharedModule } from "../../shared.module";
 import { CoreModule } from "../../../core/core.module";
 import { GotItDialogDataModel } from "./got-it-dialog-data.model";
-import { TargetModule } from "../../modules/target/desktop-target.module";
+import { TargetModule } from "../../modules/target/web-target.module";
 
 describe("GotItDialogComponent", () => {
   const dialogTitle = "Hello World";

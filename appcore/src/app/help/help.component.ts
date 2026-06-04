@@ -7,8 +7,7 @@ import { environment } from "../../environments/environment";
 import _ from "lodash";
 
 import { ActivatedRoute } from "@angular/router";
-import { OPEN_RESOURCE_RESOLVER } from "../shared/services/links-opener/open-resource-resolver";
-import { DesktopOpenResourceResolver } from "../shared/services/links-opener/impl/desktop-open-resource-resolver.service";
+import { OPEN_RESOURCE_RESOLVER, OpenResourceResolver } from "../shared/services/links-opener/open-resource-resolver";
 import { AppPackage } from "@elevate/shared/tools/app-package";
 import { BuildTarget } from "@elevate/shared/enums/build-target.enum";
 import { Constant } from "@elevate/shared/constants/constant";
@@ -49,7 +48,7 @@ export class HelpComponent implements OnInit {
     @Inject(DomSanitizer) private readonly domSanitizer: DomSanitizer,
     @Inject(ActivatedRoute) private readonly route: ActivatedRoute,
     @Inject(LoggerService) private readonly logger: LoggerService,
-    @Inject(OPEN_RESOURCE_RESOLVER) public readonly openResourceResolver: DesktopOpenResourceResolver
+    @Inject(OPEN_RESOURCE_RESOLVER) public readonly openResourceResolver: OpenResourceResolver
   ) {
     this.markDownParser = new MarkDownIt();
     this.faqEntries = [];

@@ -10,7 +10,7 @@ import { YearToDateProgressPresetModel } from "../shared/models/year-to-date-pro
 import { ProgressType } from "../shared/enums/progress-type.enum";
 import { DataStore } from "../../shared/data-store/data-store";
 import { TestingDataStore } from "../../shared/data-store/testing-datastore.service";
-import { TargetModule } from "../../shared/modules/target/desktop-target.module";
+import { TargetModule } from "../../shared/modules/target/web-target.module";
 import { ElevateSport } from "@elevate/shared/enums/elevate-sport.enum";
 
 describe("ManageYearProgressPresetsDialogComponent", () => {
