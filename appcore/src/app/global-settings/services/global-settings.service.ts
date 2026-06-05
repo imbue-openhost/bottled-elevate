@@ -55,6 +55,18 @@ export class GlobalSettingsService {
       ]
     },
     {
+      title: "Map",
+      options: [
+        {
+          key: "mapToken",
+          disableHelper: true,
+          title: "Personal Mapbox Token",
+          type: "text",
+          labels: ["All"]
+        }
+      ]
+    },
+    {
       title: "Activity View",
       buildTarget: BuildTarget.DESKTOP,
       options: [

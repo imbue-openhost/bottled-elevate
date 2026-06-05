@@ -99,10 +99,12 @@ export namespace UserSettings {
       temperatureUnit: UserSettings.DEFAULT_TEMPERATURE,
       showHiddenBetaFeatures: false,
       displayReliveCCLink: true,
-      displayWindyOverlay: false
+      displayWindyOverlay: false,
+      mapToken: null
     };
 
     public buildTarget: BuildTarget = BuildTarget.EXTENSION;
+    public mapToken: string;
     public localStorageMustBeCleared: boolean;
     public remoteLinks: boolean;
     public defaultLeaderBoardFilter: string;
