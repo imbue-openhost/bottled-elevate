@@ -80,6 +80,14 @@
                   "replace": "src/app/shared/modules/target/target.module.ts",
                   "with": "src/app/shared/modules/target/web-target.module.ts"
                 }
+              ],
+              "styles": [
+                "src/styles.scss",
+                "node_modules/katex/dist/katex.css",
+                "node_modules/github-markdown-css/github-markdown.css",
+                "node_modules/metrics-graphics/dist/metricsgraphics.css",
+                "node_modules/mapbox-gl/dist/mapbox-gl.css",
+                "node_modules/mapbox-gl-controls/lib/controls.css"
               ]
             },
             "web-prod": {
@@ -109,6 +117,14 @@
                   "replace": "src/app/shared/modules/target/target.module.ts",
                   "with": "src/app/shared/modules/target/web-target.module.ts"
                 }
+              ],
+              "styles": [
+                "src/styles.scss",
+                "node_modules/katex/dist/katex.css",
+                "node_modules/github-markdown-css/github-markdown.css",
+                "node_modules/metrics-graphics/dist/metricsgraphics.css",
+                "node_modules/mapbox-gl/dist/mapbox-gl.css",
+                "node_modules/mapbox-gl-controls/lib/controls.css"
               ]
             }
           }
