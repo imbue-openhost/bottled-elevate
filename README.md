@@ -65,8 +65,9 @@ The manifest consumes `github.com/imbue-openhost/health-data-service-spec` (shor
 
 ## Outstanding / come back to
 
-- **Workout streams are mocked.** Providers currently expose only sparse summaries (duration / distance / calories — no per-second data). `web-activity-mapper.ts::buildMockStreams()` synthesizes deterministic HR/speed/altitude/cadence/watts/GPS so the activity-detail charts render. Replace with real streams once providers serve them, and enrich `apple-health`/`oura` to expose HR/GPS/power.
-- **Summary stat panels are sparse.** Activities carry summary metrics but `stats` isn't recomputed from streams (no compute worker on web). `WebActivityService.recalculateSingle` just re-persists; it could run `ActivityComputer` over the streams to populate power/HR/zones/scores.
+- **No power / cadence traces.** `web-activity-mapper.ts` wires the real HR trace and GPS route (`route_gpx`) into streams (heart rate, lat/lng, altitude, distance, speed, grade). Apple Health doesn't serve a per-sample power or cadence trace, so the power/cadence charts stay empty. If a provider gains them, add a `Power`/`Cadence` time-series to the spec and map them in `buildStreamsFromWorkout`.
+- **HR trace is per-minute.** Apple Health records workout HR ~1/min, so the HR line is coarser than a GPS track. The mapper interpolates HR onto the (finer) GPS timeline; with no route it's an HR-only timeline.
+- **Summary stat panels come from provider scalars**, not recomputed from streams (no compute worker on web). `WebActivityService.recalculateSingle` just re-persists; it could run `ActivityComputer` over the streams to fill in zones/peaks/stress scores.
 - **Best-splits is empty.** `WebActivityService.computeSplit` returns `[]` (was an Electron-main calc). Could be reimplemented client-side.
 - **Map needs a token.** `environment.mapBoxToken` is empty → the activity map disables itself (rest of the view still renders). Set a Mapbox token to enable tiles.
 - **`buildTarget` reuses `EXTENSION`.** A real `BuildTarget.WEB` was avoided because `@elevate/shared` switches on the enum in ~30 places. Formalizing it would allow web-specific settings/columns.

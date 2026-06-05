@@ -9,10 +9,19 @@ import { Streams } from "@elevate/shared/models/activity-data/streams.model";
 /**
  * Wire shape of a workout served by the OpenHost health-data service
  * (github.com/imbue-openhost/health-data-service-spec, Workout container).
- * The proxy forwards provider responses verbatim, so values may be sparse.
+ * Scalars serialize as { value, ... }; the HR trace and GPS route are optional.
  */
 export interface ProviderScalar {
   value: number;
+}
+
+export interface ProviderSample {
+  timestamp: string;
+  value: number;
+}
+
+export interface ProviderTimeSeries {
+  samples: ProviderSample[];
 }
 
 export interface ProviderWorkout {
@@ -21,11 +30,21 @@ export interface ProviderWorkout {
   end: string;
   source?: string;
   id?: string;
-  metrics?: { [key: string]: number };
-  duration?: ProviderScalar;
-  calories?: ProviderScalar;
-  average_heart_rate?: ProviderScalar;
-  max_heart_rate?: ProviderScalar;
+  is_indoor?: boolean;
+
+  duration?: ProviderScalar; // minutes
+  calories?: ProviderScalar; // kcal
+  average_heart_rate?: ProviderScalar; // bpm
+  max_heart_rate?: ProviderScalar; // bpm
+  lowest_heart_rate?: ProviderScalar; // bpm
+  distance?: ProviderScalar; // meters
+  average_speed?: ProviderScalar; // m/s
+  elevation_gain?: ProviderScalar; // meters
+  average_pace?: ProviderScalar; // s/km
+  temperature?: ProviderScalar; // °C
+
+  heart_rate?: ProviderTimeSeries; // per-sample HR trace
+  route_gpx?: string; // GPX 1.1 document
 }
 
 const WORKOUT_TYPE_TO_ELEVATE_SPORT: { [key: string]: ElevateSport } = {
@@ -91,33 +110,44 @@ function num(value: number | null | undefined): number | null {
   return typeof value === "number" && isFinite(value) ? value : null;
 }
 
-/** Map a provider workout into a minimal-but-renderable elevate Activity plus (mock) streams. */
+/** Map a provider workout into a minimal-but-renderable elevate Activity plus streams. */
 export async function buildActivityFromWorkout(
   workout: ProviderWorkout,
   athleteSnapshot: AthleteSnapshot
-): Promise<{ activity: Activity; streams: Streams }> {
+): Promise<{ activity: Activity; streams: Streams | null }> {
   const sport = mapWorkoutTypeToSport(workout.workout_type);
-  const metrics = workout.metrics || {};
 
   const startTimestamp = Math.floor(Date.parse(workout.start) / 1000);
   const endTimestamp = Math.floor(Date.parse(workout.end) / 1000);
 
-  const durationS = num(metrics["duration_s"]) ?? num(workout.duration?.value) ?? Math.max(0, endTimestamp - startTimestamp);
-  const distanceM = num(metrics["distance_m"]);
-  const calories = num(metrics["calories"]) ?? num(workout.calories?.value);
-  const avgHr = num(metrics["average_heart_rate"]) ?? num(workout.average_heart_rate?.value);
-  const maxHr = num(metrics["max_heart_rate"]) ?? num(workout.max_heart_rate?.value);
+  const durationMin = num(workout.duration?.value);
+  const durationS = durationMin !== null ? durationMin * 60 : Math.max(0, endTimestamp - startTimestamp);
+  const distanceM = num(workout.distance?.value);
+  const calories = num(workout.calories?.value);
+  const avgHr = num(workout.average_heart_rate?.value);
+  const maxHr = num(workout.max_heart_rate?.value);
+  const avgSpeedMps = num(workout.average_speed?.value);
+  const elevationGainM = num(workout.elevation_gain?.value);
+  const avgPaceSPerKm = num(workout.average_pace?.value);
 
   const stats = createEmptyActivityStats();
   stats.elapsedTime = durationS;
   stats.movingTime = durationS;
   stats.distance = distanceM;
+  stats.elevationGain = elevationGainM;
   stats.calories = calories;
   if (calories !== null && durationS > 0) {
     stats.caloriesPerHour = (calories / durationS) * Constant.SEC_HOUR_FACTOR;
   }
-  if (distanceM !== null && durationS > 0) {
+  // Average speed (km/h): prefer the reported value, else derive from distance/duration.
+  if (avgSpeedMps !== null) {
+    stats.speed.avg = avgSpeedMps * Constant.MPS_KPH_FACTOR;
+  } else if (distanceM !== null && durationS > 0) {
     stats.speed.avg = (distanceM / durationS) * Constant.MPS_KPH_FACTOR;
+  }
+  if (avgPaceSPerKm !== null) {
+    stats.pace.avg = avgPaceSPerKm;
+  } else if (stats.speed.avg) {
     stats.pace.avg = Movement.speedToPace(stats.speed.avg);
   }
   if (avgHr !== null) {
@@ -134,6 +164,8 @@ export async function buildActivityFromWorkout(
     true
   );
 
+  const streams = buildStreamsFromWorkout(workout, durationS);
+
   const now = new Date().toISOString();
   const displaySport = sport.replace(/([A-Z])/g, " $1").trim();
 
@@ -145,10 +177,12 @@ export async function buildActivityFromWorkout(
   activity.endTime = workout.end;
   activity.startTimestamp = startTimestamp;
   activity.endTimestamp = endTimestamp;
-  activity.hasPowerMeter = Activity.isRide(sport);
+  activity.hasPowerMeter = false; // no power trace from Apple Health
   activity.trainer = false;
   activity.commute = false;
   activity.manual = false;
+  const hasGps = !!streams?.latlng?.length;
+  activity.isSwimPool = Activity.isSwim(sport) && !hasGps;
   activity.athleteSnapshot = athleteSnapshot;
   activity.stats = stats;
   activity.srcStats = stats;
@@ -162,92 +196,172 @@ export async function buildActivityFromWorkout(
   activity.flags = [];
   activity.extras = {};
 
-  const streams = buildMockStreams(sport, durationS, distanceM, avgHr);
-
   return { activity, streams };
 }
 
-const OUTDOOR_SPORTS = new Set<string>([
-  ElevateSport.Run,
-  ElevateSport.Ride,
-  ElevateSport.Walk,
-  ElevateSport.Hike,
-  ElevateSport.VirtualRun,
-  ElevateSport.Swim
-]);
+// ---------------------------------------------------------------------------
+// Real stream extraction (HR trace + GPS route)
+// ---------------------------------------------------------------------------
+
+interface GpxPoint {
+  t: number | null; // epoch ms
+  lat: number;
+  lon: number;
+  ele: number | null;
+}
+
+interface HrSample {
+  t: number; // epoch ms
+  v: number;
+}
 
 /**
- * Generate plausible per-second streams for a workout so the activity-view (graph, map, peaks,
- * time-in-zones) has data to render. PLACEHOLDER until providers expose real streams — values
- * are deterministic synthetic curves derived from the workout's summary metrics.
+ * Build elevate Streams from the workout's HR trace and/or GPS route.
+ * - With a GPS route, the trackpoints form the timeline (lat/lng, altitude, distance,
+ *   speed, grade) and HR is interpolated onto it.
+ * - Without a route, an HR-only timeline is produced (e.g. indoor workouts).
+ * Returns null when neither trace is present.
  */
-export function buildMockStreams(
-  sport: ElevateSport,
-  durationS: number,
-  distanceM: number | null,
-  avgHr: number | null
-): Streams {
+export function buildStreamsFromWorkout(workout: ProviderWorkout, durationS: number): Streams | null {
+  const hrSamples = parseHrSamples(workout.heart_rate);
+  const gpxPoints = workout.route_gpx ? parseGpxTrack(workout.route_gpx) : [];
+
+  if (gpxPoints.length >= 2 && !workout.is_indoor) {
+    return streamsFromRoute(gpxPoints, hrSamples, durationS);
+  }
+  if (hrSamples.length >= 2) {
+    return streamsFromHrOnly(hrSamples);
+  }
+  return null;
+}
+
+function parseHrSamples(trace: ProviderTimeSeries | undefined): HrSample[] {
+  if (!trace?.samples?.length) {
+    return [];
+  }
+  return trace.samples
+    .map(s => ({ t: Date.parse(s.timestamp), v: s.value }))
+    .filter(s => isFinite(s.t) && num(s.v) !== null)
+    .sort((a, b) => a.t - b.t);
+}
+
+function parseGpxTrack(gpx: string): GpxPoint[] {
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(gpx, "application/xml");
+  } catch {
+    return [];
+  }
+  if (doc.getElementsByTagName("parsererror").length) {
+    return [];
+  }
+  const points: GpxPoint[] = [];
+  const trkpts = doc.getElementsByTagName("trkpt");
+  for (let i = 0; i < trkpts.length; i++) {
+    const pt = trkpts[i];
+    const lat = parseFloat(pt.getAttribute("lat") || "");
+    const lon = parseFloat(pt.getAttribute("lon") || "");
+    if (!isFinite(lat) || !isFinite(lon)) {
+      continue;
+    }
+    const eleText = pt.getElementsByTagName("ele")[0]?.textContent;
+    const timeText = pt.getElementsByTagName("time")[0]?.textContent;
+    const ele = eleText ? parseFloat(eleText) : NaN;
+    const t = timeText ? Date.parse(timeText) : NaN;
+    points.push({ t: isFinite(t) ? t : null, lat, lon, ele: isFinite(ele) ? ele : null });
+  }
+  return points;
+}
+
+function haversineMeters(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const R = 6371000;
+  const dLat = ((bLat - aLat) * Math.PI) / 180;
+  const dLon = ((bLon - aLon) * Math.PI) / 180;
+  const lat1 = (aLat * Math.PI) / 180;
+  const lat2 = (bLat * Math.PI) / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Linearly interpolate HR (epoch ms) onto an arbitrary time, clamping at the ends. */
+function interpolateHr(samples: HrSample[], t: number): number | null {
+  if (!samples.length) {
+    return null;
+  }
+  if (t <= samples[0].t) {
+    return samples[0].v;
+  }
+  if (t >= samples[samples.length - 1].t) {
+    return samples[samples.length - 1].v;
+  }
+  for (let i = 1; i < samples.length; i++) {
+    if (samples[i].t >= t) {
+      const a = samples[i - 1];
+      const b = samples[i];
+      const span = b.t - a.t;
+      const frac = span > 0 ? (t - a.t) / span : 0;
+      return Math.round(a.v + (b.v - a.v) * frac);
+    }
+  }
+  return samples[samples.length - 1].v;
+}
+
+function streamsFromRoute(points: GpxPoint[], hrSamples: HrSample[], durationS: number): Streams {
   const streams = new Streams();
-  const duration = Math.max(60, Math.round(durationS) || 600);
-  const step = Math.max(1, Math.ceil(duration / 1800)); // cap ~1800 points
-  const n = Math.floor(duration / step) + 1;
-
-  const isRide = Activity.isRide(sport);
-  const isRun = Activity.isRun(sport);
-  const hasGps = OUTDOOR_SPORTS.has(sport);
-
-  const baseHr = avgHr ?? (isRide ? 135 : isRun ? 150 : 115);
-  const totalDistance = distanceM ?? (hasGps ? (isRide ? duration * 7 : duration * 2.5) : 0);
-  const avgSpeed = totalDistance > 0 ? totalDistance / duration : 0;
+  const n = points.length;
+  const t0 = points[0].t;
 
   streams.time = [];
-  streams.heartrate = [];
-  streams.velocity_smooth = [];
+  streams.latlng = [];
   streams.distance = [];
-  streams.altitude = [];
-  streams.cadence = [];
-  streams.grade_smooth = [];
-  streams.temp = [];
-  streams.watts = isRide ? [] : [];
-  streams.latlng = hasGps ? [] : [];
-  streams.watts_calc = [];
-  streams.grade_adjusted_speed = [];
-  streams.grade_adjusted_distance = [];
+  streams.velocity_smooth = [];
+  const hasEle = points.some(p => p.ele !== null);
+  if (hasEle) {
+    streams.altitude = [];
+    streams.grade_smooth = [];
+  }
+  if (hrSamples.length) {
+    streams.heartrate = [];
+  }
 
-  const baseLat = 37.7749;
-  const baseLng = -122.4194;
-
+  let cumDist = 0;
   for (let i = 0; i < n; i++) {
-    const t = i * step;
-    const p = t / duration; // progress 0..1
-    const wobble = Math.sin(p * Math.PI * 8) * 0.5 + Math.sin(p * Math.PI * 31) * 0.5;
+    const p = points[i];
+    // Time: real GPX timestamps when present, else spread evenly across duration.
+    const time = p.t !== null && t0 !== null ? Math.round((p.t - t0) / 1000) : Math.round((i / (n - 1)) * durationS);
+    streams.time.push(time);
+    streams.latlng.push([p.lat, p.lon]);
 
-    streams.time.push(t);
-    streams.heartrate.push(Math.round(baseHr + wobble * 12 + Math.sin(p * Math.PI) * 8));
+    if (i > 0) {
+      cumDist += haversineMeters(points[i - 1].lat, points[i - 1].lon, p.lat, p.lon);
+    }
+    streams.distance.push(+cumDist.toFixed(1));
 
-    const speed = avgSpeed > 0 ? Math.max(0, avgSpeed * (1 + wobble * 0.25)) : 0;
-    streams.velocity_smooth.push(+speed.toFixed(2));
-    streams.distance.push(+(totalDistance * p).toFixed(1));
+    const dt = i > 0 ? streams.time[i] - streams.time[i - 1] : 0;
+    const dDist = i > 0 ? streams.distance[i] - streams.distance[i - 1] : 0;
+    streams.velocity_smooth.push(dt > 0 ? +(dDist / dt).toFixed(2) : 0);
 
-    const altitude = 80 + Math.sin(p * Math.PI * 3) * 25;
-    streams.altitude.push(+altitude.toFixed(1));
-    streams.grade_smooth.push(+(Math.cos(p * Math.PI * 3) * 4).toFixed(1));
-    streams.cadence.push(isRide ? Math.round(85 + wobble * 8) : isRun ? Math.round(168 + wobble * 6) : 0);
-    streams.temp.push(20);
-
-    if (isRide) {
-      streams.watts.push(Math.round(160 + wobble * 60 + Math.sin(p * Math.PI) * 30));
+    if (hasEle) {
+      const ele = p.ele ?? (i > 0 ? streams.altitude[i - 1] : 0);
+      streams.altitude.push(+ele.toFixed(1));
+      const dEle = i > 0 ? streams.altitude[i] - streams.altitude[i - 1] : 0;
+      const grade = dDist > 0 ? Math.max(-45, Math.min(45, (dEle / dDist) * 100)) : 0;
+      streams.grade_smooth.push(+grade.toFixed(1));
     }
 
-    if (hasGps) {
-      // small looping route scaled by distance
-      const radius = Math.min(0.02, 0.0005 + totalDistance / 5_000_000);
-      streams.latlng.push([
-        +(baseLat + Math.sin(p * Math.PI * 2) * radius).toFixed(6),
-        +(baseLng + Math.cos(p * Math.PI * 2) * radius).toFixed(6)
-      ]);
+    if (hrSamples.length) {
+      const at = p.t !== null ? p.t : (t0 ?? 0) + time * 1000;
+      streams.heartrate.push(interpolateHr(hrSamples, at) ?? hrSamples[0].v);
     }
   }
 
+  return streams;
+}
+
+function streamsFromHrOnly(hrSamples: HrSample[]): Streams {
+  const streams = new Streams();
+  const t0 = hrSamples[0].t;
+  streams.time = hrSamples.map(s => Math.round((s.t - t0) / 1000));
+  streams.heartrate = hrSamples.map(s => Math.round(s.v));
   return streams;
 }

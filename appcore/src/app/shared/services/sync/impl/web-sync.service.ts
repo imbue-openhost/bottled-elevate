@@ -72,7 +72,11 @@ export class WebSyncService extends SyncService<SyncDateTime> {
         const snapshot = this.activityService.athleteSnapshotResolver.resolve(new Date(workout.start));
         const { activity, streams } = await buildActivityFromWorkout(workout, snapshot);
         await this.activityService.put(activity);
-        await this.streamsService.put(new DeflatedActivityStreams(String(activity.id), Streams.deflate(streams)));
+        if (streams) {
+          await this.streamsService.put(new DeflatedActivityStreams(String(activity.id), Streams.deflate(streams)));
+        } else {
+          await this.streamsService.removeById(String(activity.id));
+        }
         saved++;
       }
 
