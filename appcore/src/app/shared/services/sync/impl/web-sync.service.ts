@@ -21,8 +21,8 @@ import { buildActivityFromWorkout, ProviderWorkout } from "./web-activity-mapper
  * Web sync service for OpenHost. Pulls workouts from the health-data service (via the
  * same-origin proxy) and upserts them into the local IndexedDB store.
  *
- * NOTE: Phase 2 scaffold — sync() is a stub. The HTTP pull + Workout->Activity mapping
- * lands in Phase 3.
+ * A full sync fetches everything; a fast sync (used for auto-sync on load) only fetches
+ * a recent window so subsequent loads stay quick. Upserts are idempotent (keyed on id).
  */
 @Injectable()
 export class WebSyncService extends SyncService<SyncDateTime> {
@@ -49,6 +49,8 @@ export class WebSyncService extends SyncService<SyncDateTime> {
 
   public static readonly WORKOUTS_ENDPOINT: string = "/api/workouts";
   public static readonly WORKOUTS_LIMIT: number = 5000;
+  // Fast sync re-fetches this trailing window (covers timezone skew + recently edited workouts).
+  public static readonly FAST_SYNC_WINDOW_MS: number = 7 * 24 * 3600 * 1000;
 
   public async sync(fastSync: boolean, forceSync: boolean): Promise<void> {
     if (this.isSyncing) {
@@ -56,10 +58,18 @@ export class WebSyncService extends SyncService<SyncDateTime> {
     }
     this.isSyncing$.next(true);
     try {
-      const url = `${environment.backendBaseUrl}${WebSyncService.WORKOUTS_ENDPOINT}?limit=${WebSyncService.WORKOUTS_LIMIT}`;
+      if (forceSync) {
+        await this.clearActivities();
+      }
+
+      const since = await this.resolveIncrementalStart(fastSync, forceSync);
+      let url = `${environment.backendBaseUrl}${WebSyncService.WORKOUTS_ENDPOINT}?limit=${WebSyncService.WORKOUTS_LIMIT}`;
+      if (since) {
+        url += `&start=${encodeURIComponent(since)}`;
+      }
       const response = await this.httpClient.get<{ data: ProviderWorkout[] }>(url).toPromise();
       const workouts = response?.data || [];
-      this.logger.info(`Fetched ${workouts.length} workout(s) from health-data service`);
+      this.logger.info(`Fetched ${workouts.length} workout(s) from health-data service${since ? ` since ${since}` : ""}`);
 
       // Refresh athlete snapshot resolver so each activity is stamped with the right settings.
       await this.activityService.athleteSnapshotResolver.update();
@@ -89,6 +99,18 @@ export class WebSyncService extends SyncService<SyncDateTime> {
       return Promise.reject(error);
     }
     this.isSyncing$.next(false);
+  }
+
+  /** For a fast sync with existing data, return the ISO start of the trailing window; else null (full sync). */
+  private async resolveIncrementalStart(fastSync: boolean, forceSync: boolean): Promise<string | null> {
+    if (!fastSync || forceSync) {
+      return null;
+    }
+    const [last, count] = await Promise.all([this.getSyncDateTime(), this.activityService.count()]);
+    if (!last || !_.isNumber(last.syncDateTime) || count === 0) {
+      return null;
+    }
+    return new Date(last.syncDateTime - WebSyncService.FAST_SYNC_WINDOW_MS).toISOString();
   }
 
   public getSyncState(): Promise<SyncState> {

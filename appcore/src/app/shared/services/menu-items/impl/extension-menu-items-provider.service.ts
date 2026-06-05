@@ -34,22 +34,6 @@ export class ExtensionMenuItemsProvider implements MenuItemsProvider {
       icon: "format_line_spacing",
       routerLink: AppRoutes.zonesSettings,
       routerLinkActive: true
-    },
-    {
-      icon: "support",
-      routerLink: AppRoutes.help,
-      routerLinkActive: true
-    },
-    {
-      icon: "favorite_border",
-      routerLink: AppRoutes.donate,
-      routerLinkActive: true
-    },
-    {
-      icon: "get_app",
-      iconClass: "warn",
-      routerLink: AppRoutes.downloadDesktopApp,
-      routerLinkActive: true
     }
   ];
 

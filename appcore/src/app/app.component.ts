@@ -183,6 +183,10 @@ export class AppComponent implements OnInit, OnDestroy {
 
     this.sideNavSetup();
 
+    // Auto-sync from the health-data service on load so activities appear without a manual click.
+    // Fast sync only pulls a recent window once an initial sync exists.
+    this.appService.syncService.sync(true, false).catch(err => this.logger.warn("Auto-sync failed", err));
+
     this.logger.debug("App initialized.");
   }
 
