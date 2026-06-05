@@ -50,6 +50,11 @@ async def proxy_workouts(request: Request) -> Response:
     return _proxy_response(await _service_get("/v1/workouts", dict(request.query_params)))
 
 
+@get("/api/workouts/{workout_id:str}")
+async def proxy_workout_detail(workout_id: str) -> Response:
+    return _proxy_response(await _service_get(f"/v1/workouts/{workout_id}"))
+
+
 @get("/api/metrics")
 async def proxy_metrics() -> Response:
     return _proxy_response(await _service_get("/v1/metrics"))
@@ -76,6 +81,7 @@ app = Litestar(
     route_handlers=[
         health_check,
         proxy_workouts,
+        proxy_workout_detail,
         proxy_metrics,
         proxy_time_series,
         # Static SPA last so explicit /api and /health routes win; html_mode serves index.html at "/".

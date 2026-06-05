@@ -51,6 +51,8 @@ export class WebSyncService extends SyncService<SyncDateTime> {
   public static readonly WORKOUTS_LIMIT: number = 5000;
   // Fast sync re-fetches this trailing window (covers timezone skew + recently edited workouts).
   public static readonly FAST_SYNC_WINDOW_MS: number = 7 * 24 * 3600 * 1000;
+  // Concurrent per-workout detail fetches (the list endpoint is summary-only).
+  public static readonly DETAIL_CONCURRENCY: number = 8;
 
   public async sync(fastSync: boolean, forceSync: boolean): Promise<void> {
     if (this.isSyncing) {
@@ -68,26 +70,20 @@ export class WebSyncService extends SyncService<SyncDateTime> {
         url += `&start=${encodeURIComponent(since)}`;
       }
       const response = await this.httpClient.get<{ data: ProviderWorkout[] }>(url).toPromise();
-      const workouts = response?.data || [];
-      this.logger.info(`Fetched ${workouts.length} workout(s) from health-data service${since ? ` since ${since}` : ""}`);
+      const summaries = (response?.data || []).filter(w => w?.id && w?.start && w?.end);
+      this.logger.info(`Listed ${summaries.length} workout(s)${since ? ` since ${since}` : ""}`);
 
+      const userSettings = await this.userSettingsService.fetch();
       // Refresh athlete snapshot resolver so each activity is stamped with the right settings.
       await this.activityService.athleteSnapshotResolver.update();
 
+      // Fetch each workout's full detail (HR trace + route) in concurrent batches and import it.
       let saved = 0;
-      for (const workout of workouts) {
-        if (!workout?.start || !workout?.end) {
-          continue;
-        }
-        const snapshot = this.activityService.athleteSnapshotResolver.resolve(new Date(workout.start));
-        const { activity, streams } = await buildActivityFromWorkout(workout, snapshot);
-        await this.activityService.put(activity);
-        if (streams) {
-          await this.streamsService.put(new DeflatedActivityStreams(String(activity.id), Streams.deflate(streams)));
-        } else {
-          await this.streamsService.removeById(String(activity.id));
-        }
-        saved++;
+      for (let i = 0; i < summaries.length; i += WebSyncService.DETAIL_CONCURRENCY) {
+        const batch = summaries.slice(i, i + WebSyncService.DETAIL_CONCURRENCY);
+        await Promise.all(batch.map(summary => this.importWorkout(summary, userSettings)));
+        saved += batch.length;
+        this.logger.debug(`Synced ${saved}/${summaries.length}`);
       }
 
       await this.updateSyncDateTime(new SyncDateTime(Date.now()));
@@ -99,6 +95,36 @@ export class WebSyncService extends SyncService<SyncDateTime> {
       return Promise.reject(error);
     }
     this.isSyncing$.next(false);
+  }
+
+  /** Fetch one workout's full detail and upsert the activity + its streams. */
+  private async importWorkout(summary: ProviderWorkout, userSettings: any): Promise<void> {
+    let full: ProviderWorkout = summary;
+    try {
+      const detail = await this.httpClient
+        .get<ProviderWorkout>(
+          `${environment.backendBaseUrl}${WebSyncService.WORKOUTS_ENDPOINT}/${encodeURIComponent(summary.id)}`
+        )
+        .toPromise();
+      if (detail) {
+        full = detail;
+      }
+    } catch (error) {
+      this.logger.warn(`Detail fetch failed for ${summary.id}; using summary`, error);
+    }
+
+    try {
+      const snapshot = this.activityService.athleteSnapshotResolver.resolve(new Date(full.start));
+      const { activity, streams } = await buildActivityFromWorkout(full, snapshot, userSettings);
+      await this.activityService.put(activity);
+      if (streams) {
+        await this.streamsService.put(new DeflatedActivityStreams(String(activity.id), Streams.deflate(streams)));
+      } else {
+        await this.streamsService.removeById(String(activity.id));
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to import workout ${summary.id}`, error);
+    }
   }
 
   /** For a fast sync with existing data, return the ISO start of the trailing window; else null (full sync). */

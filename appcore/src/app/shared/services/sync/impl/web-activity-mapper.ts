@@ -1,3 +1,4 @@
+import _ from "lodash";
 import { Activity, ActivityStats, SlopeProfile } from "@elevate/shared/models/sync/activity.model";
 import { ElevateSport } from "@elevate/shared/enums/elevate-sport.enum";
 import { AthleteSnapshot } from "@elevate/shared/models/athlete/athlete-snapshot.model";
@@ -5,11 +6,13 @@ import { Movement } from "@elevate/shared/tools/movement";
 import { Constant } from "@elevate/shared/constants/constant";
 import { sha256 } from "@elevate/shared/tools/hash";
 import { Streams } from "@elevate/shared/models/activity-data/streams.model";
+import { ActivityComputer } from "@elevate/shared/sync/compute/activity-computer";
+import { UserSettings } from "@elevate/shared/models/user-settings/user-settings.namespace";
 
 /**
  * Wire shape of a workout served by the OpenHost health-data service
- * (github.com/imbue-openhost/health-data-service-spec, Workout container).
- * Scalars serialize as { value, ... }; the HR trace and GPS route are optional.
+ * (github.com/imbue-openhost/health-data-service-spec). The list endpoint returns
+ * scalar summaries only; the per-workout detail endpoint adds the HR trace + route.
  */
 export interface ProviderScalar {
   value: number;
@@ -43,8 +46,8 @@ export interface ProviderWorkout {
   average_pace?: ProviderScalar; // s/km
   temperature?: ProviderScalar; // °C
 
-  heart_rate?: ProviderTimeSeries; // per-sample HR trace
-  route_gpx?: string; // GPX 1.1 document
+  heart_rate?: ProviderTimeSeries; // per-sample HR trace (detail endpoint only)
+  route_gpx?: string; // GPX 1.1 document (detail endpoint only)
 }
 
 const WORKOUT_TYPE_TO_ELEVATE_SPORT: { [key: string]: ElevateSport } = {
@@ -60,6 +63,14 @@ const WORKOUT_TYPE_TO_ELEVATE_SPORT: { [key: string]: ElevateSport } = {
 
 export function mapWorkoutTypeToSport(workoutType: string): ElevateSport {
   return WORKOUT_TYPE_TO_ELEVATE_SPORT[(workoutType || "").toLowerCase()] || ElevateSport.Other;
+}
+
+export function workoutDurationS(workout: ProviderWorkout): number {
+  const minutes = num(workout.duration?.value);
+  if (minutes !== null) {
+    return minutes * 60;
+  }
+  return Math.max(0, Math.floor((Date.parse(workout.end) - Date.parse(workout.start)) / 1000));
 }
 
 /** Build an ActivityStats with every nested sub-object present but unpopulated. */
@@ -110,18 +121,8 @@ function num(value: number | null | undefined): number | null {
   return typeof value === "number" && isFinite(value) ? value : null;
 }
 
-/** Map a provider workout into a minimal-but-renderable elevate Activity plus streams. */
-export async function buildActivityFromWorkout(
-  workout: ProviderWorkout,
-  athleteSnapshot: AthleteSnapshot
-): Promise<{ activity: Activity; streams: Streams | null }> {
-  const sport = mapWorkoutTypeToSport(workout.workout_type);
-
-  const startTimestamp = Math.floor(Date.parse(workout.start) / 1000);
-  const endTimestamp = Math.floor(Date.parse(workout.end) / 1000);
-
-  const durationMin = num(workout.duration?.value);
-  const durationS = durationMin !== null ? durationMin * 60 : Math.max(0, endTimestamp - startTimestamp);
+/** Sparse summary stats from the workout's scalar fields (overlaid on computed stats). */
+function buildSummaryStats(workout: ProviderWorkout, durationS: number): Partial<ActivityStats> {
   const distanceM = num(workout.distance?.value);
   const calories = num(workout.calories?.value);
   const avgHr = num(workout.average_heart_rate?.value);
@@ -130,32 +131,75 @@ export async function buildActivityFromWorkout(
   const elevationGainM = num(workout.elevation_gain?.value);
   const avgPaceSPerKm = num(workout.average_pace?.value);
 
-  const stats = createEmptyActivityStats();
-  stats.elapsedTime = durationS;
-  stats.movingTime = durationS;
-  stats.distance = distanceM;
-  stats.elevationGain = elevationGainM;
-  stats.calories = calories;
-  if (calories !== null && durationS > 0) {
-    stats.caloriesPerHour = (calories / durationS) * Constant.SEC_HOUR_FACTOR;
+  const src: any = { elapsedTime: durationS, movingTime: durationS, moveRatio: 1 };
+  if (distanceM !== null) src.distance = distanceM;
+  if (elevationGainM !== null) src.elevationGain = elevationGainM;
+  if (calories !== null) {
+    src.calories = calories;
+    if (durationS > 0) src.caloriesPerHour = (calories / durationS) * Constant.SEC_HOUR_FACTOR;
   }
-  // Average speed (km/h): prefer the reported value, else derive from distance/duration.
-  if (avgSpeedMps !== null) {
-    stats.speed.avg = avgSpeedMps * Constant.MPS_KPH_FACTOR;
-  } else if (distanceM !== null && durationS > 0) {
-    stats.speed.avg = (distanceM / durationS) * Constant.MPS_KPH_FACTOR;
+  const speedKph =
+    avgSpeedMps !== null
+      ? avgSpeedMps * Constant.MPS_KPH_FACTOR
+      : distanceM !== null && durationS > 0
+      ? (distanceM / durationS) * Constant.MPS_KPH_FACTOR
+      : null;
+  if (speedKph !== null) src.speed = { avg: speedKph };
+  const paceVal = avgPaceSPerKm !== null ? avgPaceSPerKm : speedKph ? Movement.speedToPace(speedKph) : null;
+  if (paceVal !== null) src.pace = { avg: paceVal };
+  // Only set non-null fields: _.merge overwrites with null (it skips only undefined),
+  // which would otherwise wipe stream-computed HR avg/max.
+  if (avgHr !== null || maxHr !== null) {
+    src.heartRate = {};
+    if (avgHr !== null) src.heartRate.avg = avgHr;
+    if (maxHr !== null) src.heartRate.max = maxHr;
   }
-  if (avgPaceSPerKm !== null) {
-    stats.pace.avg = avgPaceSPerKm;
-  } else if (stats.speed.avg) {
-    stats.pace.avg = Movement.speedToPace(stats.speed.avg);
+  return src;
+}
+
+/** Estimate HR stress (Banister TRIMP -> HRSS) from average HR, for workouts without a HR trace. */
+function applyEstimatedStress(
+  stats: ActivityStats,
+  snapshot: AthleteSnapshot,
+  sport: ElevateSport,
+  avgHr: number | null,
+  durationS: number
+): void {
+  const settings = snapshot?.athleteSettings;
+  if (avgHr === null || !settings || durationS <= 0) {
+    return;
   }
-  if (avgHr !== null) {
-    stats.heartRate.avg = avgHr;
+  const hrr = ActivityComputer.heartRateReserveRatio(avgHr, settings.maxHr, settings.restHr);
+  const trimp = ActivityComputer.trainingImpulse(durationS, hrr * 100, snapshot.gender);
+  const lthr = ActivityComputer.resolveLTHR(sport, settings);
+  const hrss = ActivityComputer.computeHeartRateStressScore(snapshot.gender, settings.maxHr, settings.restHr, lthr, trimp);
+  stats.scores.stress.trimp = trimp;
+  stats.scores.stress.trimpPerHour = (trimp / durationS) * Constant.SEC_HOUR_FACTOR;
+  if (hrss !== null) {
+    stats.scores.stress.hrss = hrss;
+    stats.scores.stress.hrssPerHour = (hrss / durationS) * Constant.SEC_HOUR_FACTOR;
   }
-  if (maxHr !== null) {
-    stats.heartRate.max = maxHr;
-  }
+}
+
+/**
+ * Build a fully-populated elevate Activity (+streams) from a full workout detail.
+ * When streams exist, ActivityComputer derives the rich stats (peaks, zones, scores);
+ * otherwise summary scalars + an avg-HR stress estimate keep the activity usable.
+ */
+export async function buildActivityFromWorkout(
+  workout: ProviderWorkout,
+  athleteSnapshot: AthleteSnapshot,
+  userSettings: UserSettings.BaseUserSettings
+): Promise<{ activity: Activity; streams: Streams | null }> {
+  const sport = mapWorkoutTypeToSport(workout.workout_type);
+  const durationS = workoutDurationS(workout);
+  const avgHr = num(workout.average_heart_rate?.value);
+  const distanceM = num(workout.distance?.value);
+  const startTimestamp = Math.floor(Date.parse(workout.start) / 1000);
+  const endTimestamp = Math.floor(Date.parse(workout.end) / 1000);
+
+  const streams = buildStreamsFromWorkout(workout, durationS);
+  const hasGps = !!streams?.latlng?.length;
 
   const source = workout.source || "openhost";
   const id = workout.id ? `${source}:${workout.id}` : await sha256(`${source}:${workout.start}:${workout.end}`, true);
@@ -163,9 +207,6 @@ export async function buildActivityFromWorkout(
     JSON.stringify({ type: sport, startTime: workout.start, endTime: workout.end, distance: distanceM }),
     true
   );
-
-  const streams = buildStreamsFromWorkout(workout, durationS);
-
   const now = new Date().toISOString();
   const displaySport = sport.replace(/([A-Z])/g, " $1").trim();
 
@@ -181,11 +222,8 @@ export async function buildActivityFromWorkout(
   activity.trainer = false;
   activity.commute = false;
   activity.manual = false;
-  const hasGps = !!streams?.latlng?.length;
   activity.isSwimPool = Activity.isSwim(sport) && !hasGps;
   activity.athleteSnapshot = athleteSnapshot;
-  activity.stats = stats;
-  activity.srcStats = stats;
   activity.laps = [];
   activity.hash = hash;
   activity.creationTime = now;
@@ -196,11 +234,30 @@ export async function buildActivityFromWorkout(
   activity.flags = [];
   activity.extras = {};
 
+  const srcStats = buildSummaryStats(workout, durationS);
+
+  let stats: ActivityStats;
+  if (streams) {
+    try {
+      const computed = ActivityComputer.compute(activity, athleteSnapshot, userSettings, streams, true, true);
+      stats = _.merge(computed, srcStats); // summary scalars win over stream-derived where set
+    } catch {
+      stats = _.merge(createEmptyActivityStats(), srcStats);
+      applyEstimatedStress(stats, athleteSnapshot, sport, avgHr, durationS);
+    }
+  } else {
+    stats = _.merge(createEmptyActivityStats(), srcStats);
+    applyEstimatedStress(stats, athleteSnapshot, sport, avgHr, durationS);
+  }
+
+  activity.stats = stats;
+  activity.srcStats = srcStats;
+
   return { activity, streams };
 }
 
 // ---------------------------------------------------------------------------
-// Real stream extraction (HR trace + GPS route)
+// Stream extraction (HR trace + GPS route)
 // ---------------------------------------------------------------------------
 
 interface GpxPoint {
@@ -217,10 +274,8 @@ interface HrSample {
 
 /**
  * Build elevate Streams from the workout's HR trace and/or GPS route.
- * - With a GPS route, the trackpoints form the timeline (lat/lng, altitude, distance,
- *   speed, grade) and HR is interpolated onto it.
- * - Without a route, an HR-only timeline is produced (e.g. indoor workouts).
- * Returns null when neither trace is present.
+ * With a route, the trackpoints form the timeline and HR is interpolated onto it;
+ * otherwise an HR-only timeline is produced. Returns null when neither is present.
  */
 export function buildStreamsFromWorkout(workout: ProviderWorkout, durationS: number): Streams | null {
   const hrSamples = parseHrSamples(workout.heart_rate);
@@ -327,7 +382,6 @@ function streamsFromRoute(points: GpxPoint[], hrSamples: HrSample[], durationS: 
   let cumDist = 0;
   for (let i = 0; i < n; i++) {
     const p = points[i];
-    // Time: real GPX timestamps when present, else spread evenly across duration.
     const time = p.t !== null && t0 !== null ? Math.round((p.t - t0) / 1000) : Math.round((i / (n - 1)) * durationS);
     streams.time.push(time);
     streams.latlng.push([p.lat, p.lon]);
