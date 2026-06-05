@@ -9,6 +9,7 @@ import { AthleteSnapshot } from "@elevate/shared/models/athlete/athlete-snapshot
 import { UserSettings } from "@elevate/shared/models/user-settings/user-settings.namespace";
 import { SplitRequest } from "@elevate/shared/models/splits/split-request.model";
 import { SplitResponse } from "@elevate/shared/models/splits/split-response.model";
+import { SplitCalculator } from "@elevate/shared/sync/compute/split-calculator";
 
 @Injectable()
 export class WebActivityService extends ActivityService {
@@ -32,9 +33,24 @@ export class WebActivityService extends ActivityService {
     });
   }
 
-  // Best-splits computation ran in the Electron main process; not available on web yet.
-  public computeSplit(_splitRequest: SplitRequest): Promise<SplitResponse> {
-    return Promise.resolve({ results: [] } as SplitResponse);
+  // Best-splits ran in the Electron main process; run the same SplitCalculator client-side.
+  public computeSplit(splitRequest: SplitRequest): Promise<SplitResponse> {
+    const scale = splitRequest.scaleStream || [];
+    const results: { streamKey: string; value: number; indexes: number[] }[] = [];
+    for (const dataStream of splitRequest.dataStreams || []) {
+      if (!dataStream?.stream?.length || scale.length < 2) {
+        continue;
+      }
+      try {
+        const best = new SplitCalculator(scale, dataStream.stream).compute(splitRequest.range);
+        if (best.value !== null && isFinite(best.value)) {
+          results.push({ streamKey: dataStream.streamKey, value: best.value, indexes: [best.start, best.end] });
+        }
+      } catch {
+        // Range longer than the activity (or invalid stream) — skip this one.
+      }
+    }
+    return Promise.resolve({ type: splitRequest.type, range: splitRequest.range, results });
   }
 
   public removeById(id: number | string): Promise<void> {

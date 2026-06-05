@@ -1,6 +1,7 @@
 import _ from "lodash";
-import { Activity, ActivityStats, SlopeProfile } from "@elevate/shared/models/sync/activity.model";
+import { Activity, ActivityStats, Lap, SlopeProfile } from "@elevate/shared/models/sync/activity.model";
 import { ElevateSport } from "@elevate/shared/enums/elevate-sport.enum";
+import { MeasureSystem } from "@elevate/shared/enums/measure-system.enum";
 import { AthleteSnapshot } from "@elevate/shared/models/athlete/athlete-snapshot.model";
 import { Movement } from "@elevate/shared/tools/movement";
 import { Constant } from "@elevate/shared/constants/constant";
@@ -224,7 +225,7 @@ export async function buildActivityFromWorkout(
   activity.manual = false;
   activity.isSwimPool = Activity.isSwim(sport) && !hasGps;
   activity.athleteSnapshot = athleteSnapshot;
-  activity.laps = [];
+  activity.laps = streams ? buildLaps(streams, userSettings.systemUnit) : [];
   activity.hash = hash;
   activity.creationTime = now;
   activity.lastEditTime = now;
@@ -418,4 +419,79 @@ function streamsFromHrOnly(hrSamples: HrSample[]): Streams {
   streams.time = hrSamples.map(s => Math.round((s.t - t0) / 1000));
   streams.heartrate = hrSamples.map(s => Math.round(s.v));
   return streams;
+}
+
+// ---------------------------------------------------------------------------
+// Auto-laps (Apple Health workouts carry no lap markers, so split by distance)
+// ---------------------------------------------------------------------------
+
+function safeMax(values: number[]): number | null {
+  let max = -Infinity;
+  for (const v of values) {
+    if (typeof v === "number" && isFinite(v) && v > max) max = v;
+  }
+  return isFinite(max) ? max : null;
+}
+
+function makeLap(streams: Streams, a: number, b: number, id: number): Lap {
+  const slice = (arr: number[] | undefined): number[] =>
+    (arr || []).slice(a, b + 1).filter(v => typeof v === "number" && isFinite(v));
+
+  const distance = streams.distance[b] - streams.distance[a];
+  const elapsedTime = streams.time[b] - streams.time[a];
+  const speedsMps = slice(streams.velocity_smooth);
+  const avgSpeed =
+    speedsMps.length > 0
+      ? _.mean(speedsMps) * Constant.MPS_KPH_FACTOR
+      : elapsedTime > 0
+      ? (distance / elapsedTime) * Constant.MPS_KPH_FACTOR
+      : null;
+  const maxSpeedMps = safeMax(speedsMps);
+  const hr = slice(streams.heartrate);
+
+  const lap: Lap = { id, active: true, indexes: [a, b], distance: _.round(distance), elapsedTime, movingTime: elapsedTime };
+  if (avgSpeed !== null) {
+    lap.avgSpeed = _.round(avgSpeed, 2);
+    lap.avgPace = Movement.speedToPace(avgSpeed);
+  }
+  if (maxSpeedMps !== null) lap.maxSpeed = _.round(maxSpeedMps * Constant.MPS_KPH_FACTOR, 2);
+  if (hr.length > 0) {
+    lap.avgHr = _.round(_.mean(hr));
+    lap.maxHr = safeMax(hr);
+  }
+  if (streams.altitude?.length) {
+    let gain = 0;
+    for (let i = a + 1; i <= b; i++) {
+      const d = streams.altitude[i] - streams.altitude[i - 1];
+      if (d > 0) gain += d;
+    }
+    lap.elevationGain = _.round(gain);
+  }
+  return lap;
+}
+
+/** Split an activity into per-distance laps (1 mi imperial / 1 km metric) from its streams. */
+export function buildLaps(streams: Streams, measureSystem: MeasureSystem): Lap[] {
+  const dist = streams?.distance;
+  const time = streams?.time;
+  if (!dist?.length || !time?.length || dist.length !== time.length || _.last(dist) <= 0) {
+    return [];
+  }
+  const lapMeters = measureSystem === MeasureSystem.IMPERIAL ? 1609.344 : 1000;
+  const laps: Lap[] = [];
+  let start = 0;
+  let boundary = lapMeters;
+  let id = 1;
+  const n = dist.length;
+  for (let i = 1; i < n; i++) {
+    if (dist[i] >= boundary) {
+      laps.push(makeLap(streams, start, i, id++));
+      start = i;
+      boundary = dist[i] + lapMeters;
+    }
+  }
+  if (n - 1 > start) {
+    laps.push(makeLap(streams, start, n - 1, id));
+  }
+  return laps;
 }
