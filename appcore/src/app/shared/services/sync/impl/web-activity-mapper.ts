@@ -225,7 +225,7 @@ export async function buildActivityFromWorkout(
   activity.manual = false;
   activity.isSwimPool = Activity.isSwim(sport) && !hasGps;
   activity.athleteSnapshot = athleteSnapshot;
-  activity.laps = streams ? buildLaps(streams, userSettings.systemUnit) : [];
+  activity.laps = []; // computed on-demand from streams in the activity view
   activity.hash = hash;
   activity.creationTime = now;
   activity.lastEditTime = now;

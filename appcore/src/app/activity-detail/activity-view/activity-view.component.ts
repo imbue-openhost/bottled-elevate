@@ -8,6 +8,7 @@ import moment from "moment";
 import _ from "lodash";
 import { OPEN_RESOURCE_RESOLVER, OpenResourceResolver } from "../../shared/services/links-opener/open-resource-resolver";
 import { WebActivityService } from "../../shared/services/activity/impl/web-activity.service";
+import { buildLaps } from "../../shared/services/sync/impl/web-activity-mapper";
 import { AppRoutes } from "../../shared/models/app-routes";
 import { MatSnackBar } from "@angular/material/snack-bar";
 import { ConfirmDialogDataModel } from "../../shared/dialogs/confirm-dialog/confirm-dialog-data.model";
@@ -130,6 +131,9 @@ export class ActivityViewComponent implements OnInit, OnDestroy {
       .then((streams: Streams) => {
         this.streams = streams;
         this.hasMapData = streams?.latlng?.length > 0;
+
+        // Apple Health has no lap markers; derive per-distance laps from the streams.
+        this.activity.laps = streams ? buildLaps(streams, this.userSettings.systemUnit) : [];
 
         this.logger.debug("Activity", this.activity);
         this.logger.debug("Streams", this.streams);
