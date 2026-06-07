@@ -1,4 +1,5 @@
-import { buildStreamsFromWorkout, ProviderWorkout } from "./web-activity-mapper";
+import { buildStreamsFromWorkout, mapWorkoutTypeToSport, ProviderWorkout } from "./web-activity-mapper";
+import { ElevateSport } from "@elevate/shared/enums/elevate-sport.enum";
 
 const GPX = `<?xml version="1.0"?>
 <gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
@@ -15,6 +16,51 @@ const HR_TRACE = {
     { timestamp: "2025-01-01T00:01:00Z", value: 160 }
   ]
 };
+
+describe("mapWorkoutTypeToSport", () => {
+  // Every workout_type present in the live Apple Health data.
+  const cases: [string, ElevateSport][] = [
+    ["walking", ElevateSport.Walk],
+    ["cycling", ElevateSport.Ride],
+    ["yoga", ElevateSport.Yoga],
+    ["swimming", ElevateSport.Swim],
+    ["running", ElevateSport.Run],
+    ["strength", ElevateSport.WeightTraining],
+    ["volleyball", ElevateSport.Volleyball],
+    ["pickleball", ElevateSport.Pickleball],
+    ["hiking", ElevateSport.Hike],
+    ["snowboarding", ElevateSport.Snowboard],
+    ["climbing", ElevateSport.Climbing],
+    ["core_training", ElevateSport.WeightTraining],
+    ["other", ElevateSport.Other],
+    ["tennis", ElevateSport.Tennis],
+    ["elliptical", ElevateSport.Elliptical],
+    ["stair_climbing", ElevateSport.StairStepper],
+    ["rowing", ElevateSport.Rowing],
+    ["cardio_dance", ElevateSport.Dance],
+    ["downhill_skiing", ElevateSport.AlpineSki],
+    ["badminton", ElevateSport.Badminton]
+  ];
+
+  cases.forEach(([type, sport]) => {
+    it(`maps "${type}" to ${sport}`, () => {
+      expect(mapWorkoutTypeToSport(type)).toBe(sport);
+    });
+  });
+
+  it("auto-maps a multi-word type via PascalCase (table_tennis -> TableTennis)", () => {
+    expect(mapWorkoutTypeToSport("table_tennis")).toBe(ElevateSport.TableTennis);
+  });
+
+  it("is case-insensitive", () => {
+    expect(mapWorkoutTypeToSport("Volleyball")).toBe(ElevateSport.Volleyball);
+  });
+
+  it("falls back to Other for unknown types and empty input", () => {
+    expect(mapWorkoutTypeToSport("quidditch")).toBe(ElevateSport.Other);
+    expect(mapWorkoutTypeToSport("")).toBe(ElevateSport.Other);
+  });
+});
 
 describe("buildStreamsFromWorkout", () => {
   it("builds GPS-backed streams with HR interpolated onto the track", () => {

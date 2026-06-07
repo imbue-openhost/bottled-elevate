@@ -44,6 +44,7 @@ export enum ElevateSport {
   Orienteering = "Orienteering",
   Other = "Other",
   Paragliding = "Paragliding",
+  Pickleball = "Pickleball",
   Ride = "Ride",
   RockClimbing = "RockClimbing",
   RollerSki = "RollerSki",

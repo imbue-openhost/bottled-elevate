@@ -51,19 +51,42 @@ export interface ProviderWorkout {
   route_gpx?: string; // GPX 1.1 document (detail endpoint only)
 }
 
-const WORKOUT_TYPE_TO_ELEVATE_SPORT: { [key: string]: ElevateSport } = {
+// Overrides for workout_type slugs whose elevate sport differs from a plain
+// PascalCase of the slug (name mismatch, or a more specific sport fits). Types
+// that PascalCase straight onto an ElevateSport value (yoga, volleyball, tennis,
+// rowing, badminton, ...) need no entry — they auto-map below.
+const WORKOUT_TYPE_OVERRIDES: { [key: string]: ElevateSport } = {
   running: ElevateSport.Run,
   cycling: ElevateSport.Ride,
   swimming: ElevateSport.Swim,
   walking: ElevateSport.Walk,
   hiking: ElevateSport.Hike,
   strength: ElevateSport.WeightTraining,
-  yoga: ElevateSport.Yoga,
+  snowboarding: ElevateSport.Snowboard,
+  downhill_skiing: ElevateSport.AlpineSki,
+  stair_climbing: ElevateSport.StairStepper,
+  cardio_dance: ElevateSport.Dance,
+  core_training: ElevateSport.WeightTraining,
   other: ElevateSport.Other
 };
 
+const ELEVATE_SPORT_VALUES: Set<string> = new Set(Object.values(ElevateSport));
+
+function pascalCase(slug: string): string {
+  return slug
+    .split(/[_\s]+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join("");
+}
+
 export function mapWorkoutTypeToSport(workoutType: string): ElevateSport {
-  return WORKOUT_TYPE_TO_ELEVATE_SPORT[(workoutType || "").toLowerCase()] || ElevateSport.Other;
+  const key = (workoutType || "").toLowerCase();
+  if (WORKOUT_TYPE_OVERRIDES[key]) {
+    return WORKOUT_TYPE_OVERRIDES[key];
+  }
+  const candidate = pascalCase(key);
+  return ELEVATE_SPORT_VALUES.has(candidate) ? (candidate as ElevateSport) : ElevateSport.Other;
 }
 
 export function workoutDurationS(workout: ProviderWorkout): number {
