@@ -7,10 +7,17 @@ import { UserSettingsService } from "../user-settings/user-settings.service";
 import { StreamsService } from "../streams/streams.service";
 import { LoggerService } from "../logging/logger.service";
 import { ActivityService } from "../activity/activity.service";
-import { Subject } from "rxjs";
+import { BehaviorSubject } from "rxjs";
+
+export interface SyncProgress {
+  imported: number;
+  total: number;
+}
 
 export abstract class SyncService<T> {
-  public isSyncing$: Subject<boolean>;
+  // Seeded so late subscribers (sync bar/menu mounted after a sync starts) get the current state.
+  public isSyncing$: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
+  public syncProgress$: BehaviorSubject<SyncProgress | null> = new BehaviorSubject<SyncProgress | null>(null);
 
   constructor(
     public readonly versionsProvider: VersionsProvider,
@@ -20,9 +27,7 @@ export abstract class SyncService<T> {
     public readonly athleteService: AthleteService,
     public readonly userSettingsService: UserSettingsService,
     public readonly logger: LoggerService
-  ) {
-    this.isSyncing$ = new Subject<boolean>();
-  }
+  ) {}
 
   /**
    * Promise of sync start

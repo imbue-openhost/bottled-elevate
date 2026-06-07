@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@angular/core";
 import { HttpClient } from "@angular/common/http";
+import { timeout } from "rxjs/operators";
 import _ from "lodash";
 import { SyncService } from "../sync.service";
 import { SyncState } from "../sync-state.enum";
@@ -15,18 +16,31 @@ import { SyncDateTime } from "@elevate/shared/models/sync/sync-date-time.model";
 import { Streams } from "@elevate/shared/models/activity-data/streams.model";
 import { DeflatedActivityStreams } from "@elevate/shared/models/sync/deflated-activity.streams";
 import { environment } from "../../../../../environments/environment";
+import { Activity } from "@elevate/shared/models/sync/activity.model";
 import { buildActivityFromWorkout, ProviderWorkout } from "./web-activity-mapper";
+
+interface BuiltWorkout {
+  activity: Activity;
+  streams: Streams | null;
+}
 
 /**
  * Web sync service for OpenHost. Pulls workouts from the health-data service (via the
- * same-origin proxy) and upserts them into the local IndexedDB store.
+ * same-origin proxy) and stores them in the local IndexedDB store.
  *
- * A full sync fetches everything; a fast sync (used for auto-sync on load) only fetches
- * a recent window so subsequent loads stay quick. Upserts are idempotent (keyed on id).
+ * Crash-safe by design: workouts are imported newest-first and persisted per batch, and
+ * workouts already in the store are skipped. So an interrupted sync keeps the most recent
+ * activities and the next run cheaply resumes the unimported tail instead of refetching
+ * everything. `syncDateTime` is written only once a full pass completes; until then the
+ * state is PARTIALLY_SYNCED and the next sync continues the backfill.
+ *
+ * A full sync fetches everything; a fast sync (auto-sync on load) only lists a recent
+ * window once an initial sync exists.
  */
 @Injectable()
 export class WebSyncService extends SyncService<SyncDateTime> {
   public isSyncing: boolean;
+  private aborted: boolean;
 
   constructor(
     @Inject(VersionsProvider) public readonly versionsProvider: VersionsProvider,
@@ -42,6 +56,7 @@ export class WebSyncService extends SyncService<SyncDateTime> {
     super(versionsProvider, dataStore, activityService, streamsService, athleteService, userSettingsService, logger);
 
     this.isSyncing = false;
+    this.aborted = false;
     this.isSyncing$.subscribe(isSyncing => {
       this.isSyncing = isSyncing;
     });
@@ -53,12 +68,16 @@ export class WebSyncService extends SyncService<SyncDateTime> {
   public static readonly FAST_SYNC_WINDOW_MS: number = 7 * 24 * 3600 * 1000;
   // Concurrent per-workout detail fetches (the list endpoint is summary-only).
   public static readonly DETAIL_CONCURRENCY: number = 8;
+  // Per-request timeout so one stalled detail fetch can't hang the whole sync.
+  public static readonly REQUEST_TIMEOUT_MS: number = 30000;
 
   public async sync(fastSync: boolean, forceSync: boolean): Promise<void> {
     if (this.isSyncing) {
       return;
     }
+    this.aborted = false;
     this.isSyncing$.next(true);
+    this.syncProgress$.next(null);
     try {
       if (forceSync) {
         await this.clearActivities();
@@ -69,43 +88,76 @@ export class WebSyncService extends SyncService<SyncDateTime> {
       if (since) {
         url += `&start=${encodeURIComponent(since)}`;
       }
-      const response = await this.httpClient.get<{ data: ProviderWorkout[] }>(url).toPromise();
-      const summaries = (response?.data || []).filter(w => w?.id && w?.start && w?.end);
-      this.logger.info(`Listed ${summaries.length} workout(s)${since ? ` since ${since}` : ""}`);
+      const response = await this.get<{ data: ProviderWorkout[] }>(url);
+      // The service lists workouts ascending (oldest first); import newest-first so the
+      // most recent activities land first and survive an interrupted sync.
+      const summaries = (response?.data || []).filter(w => w?.id && w?.start && w?.end).reverse();
+
+      // Skip workouts already imported: makes a resumed sync cheap (no detail refetch).
+      const existingIds = await this.existingActivityIds();
+      const toImport = summaries.filter(s => !existingIds.has(this.activityId(s)));
+      this.logger.info(
+        `Listed ${summaries.length} workout(s)${since ? ` since ${since}` : ""}; ${toImport.length} new to import`
+      );
 
       const userSettings = await this.userSettingsService.fetch();
       // Refresh athlete snapshot resolver so each activity is stamped with the right settings.
       await this.activityService.athleteSnapshotResolver.update();
 
-      // Fetch each workout's full detail (HR trace + route) in concurrent batches and import it.
-      let saved = 0;
-      for (let i = 0; i < summaries.length; i += WebSyncService.DETAIL_CONCURRENCY) {
-        const batch = summaries.slice(i, i + WebSyncService.DETAIL_CONCURRENCY);
-        await Promise.all(batch.map(summary => this.importWorkout(summary, userSettings)));
-        saved += batch.length;
-        this.logger.debug(`Synced ${saved}/${summaries.length}`);
+      const total = toImport.length;
+      this.syncProgress$.next({ imported: 0, total });
+
+      // Fetch each new workout's full detail (HR trace + route) in concurrent batches,
+      // then persist the batch in one store write (instead of a save per record).
+      let imported = 0;
+      for (let i = 0; i < toImport.length && !this.aborted; i += WebSyncService.DETAIL_CONCURRENCY) {
+        const batch = toImport.slice(i, i + WebSyncService.DETAIL_CONCURRENCY);
+        const results = await Promise.all(batch.map(summary => this.buildWorkout(summary, userSettings)));
+        const built = results.filter((b): b is BuiltWorkout => b !== null);
+        if (built.length) {
+          await this.activityService.insertMany(
+            built.map(b => b.activity),
+            true
+          );
+          const streamModels = built
+            .filter(b => b.streams)
+            .map(b => new DeflatedActivityStreams(String(b.activity.id), Streams.deflate(b.streams as Streams)));
+          if (streamModels.length) {
+            await this.streamsService.insertMany(streamModels);
+          }
+        }
+        imported += built.length;
+        this.syncProgress$.next({ imported, total });
+        this.logger.debug(`Synced ${imported}/${total}`);
       }
 
-      await this.updateSyncDateTime(new SyncDateTime(Date.now()));
-      await this.dataStore.persist(true);
-      this.logger.info(`Sync done: ${saved} activity(ies) upserted`);
+      if (this.aborted) {
+        this.logger.info(`Sync stopped: ${imported}/${total} imported (will resume next sync)`);
+      } else {
+        // Mark a completed pass so subsequent loads do a cheap incremental fast-sync.
+        await this.updateSyncDateTime(new SyncDateTime(Date.now()));
+        await this.dataStore.persist(true);
+        this.logger.info(`Sync done: ${imported} activity(ies) imported`);
+      }
     } catch (error) {
       this.logger.error("WebSyncService.sync() failed", error);
+      throw error;
+    } finally {
+      this.syncProgress$.next(null);
       this.isSyncing$.next(false);
-      return Promise.reject(error);
     }
-    this.isSyncing$.next(false);
   }
 
-  /** Fetch one workout's full detail and upsert the activity + its streams. */
-  private async importWorkout(summary: ProviderWorkout, userSettings: any): Promise<void> {
+  /** Fetch one workout's full detail and build its activity + streams (no persistence). */
+  private async buildWorkout(summary: ProviderWorkout, userSettings: any): Promise<BuiltWorkout | null> {
+    if (this.aborted) {
+      return null;
+    }
     let full: ProviderWorkout = summary;
     try {
-      const detail = await this.httpClient
-        .get<ProviderWorkout>(
-          `${environment.backendBaseUrl}${WebSyncService.WORKOUTS_ENDPOINT}/${encodeURIComponent(summary.id)}`
-        )
-        .toPromise();
+      const detail = await this.get<ProviderWorkout>(
+        `${environment.backendBaseUrl}${WebSyncService.WORKOUTS_ENDPOINT}/${encodeURIComponent(summary.id)}`
+      );
       if (detail) {
         full = detail;
       }
@@ -115,16 +167,26 @@ export class WebSyncService extends SyncService<SyncDateTime> {
 
     try {
       const snapshot = this.activityService.athleteSnapshotResolver.resolve(new Date(full.start));
-      const { activity, streams } = await buildActivityFromWorkout(full, snapshot, userSettings);
-      await this.activityService.put(activity);
-      if (streams) {
-        await this.streamsService.put(new DeflatedActivityStreams(String(activity.id), Streams.deflate(streams)));
-      } else {
-        await this.streamsService.removeById(String(activity.id));
-      }
+      return await buildActivityFromWorkout(full, snapshot, userSettings);
     } catch (error) {
-      this.logger.warn(`Failed to import workout ${summary.id}`, error);
+      this.logger.warn(`Failed to build workout ${summary.id}`, error);
+      return null;
     }
+  }
+
+  /** GET with a per-request timeout so a stalled response can't hang the sync. */
+  private get<T>(url: string): Promise<T> {
+    return this.httpClient.get<T>(url).pipe(timeout(WebSyncService.REQUEST_TIMEOUT_MS)).toPromise();
+  }
+
+  /** Activity id a summary will map to (must match web-activity-mapper's id scheme). */
+  private activityId(summary: ProviderWorkout): string {
+    return `${summary.source || "openhost"}:${summary.id}`;
+  }
+
+  private async existingActivityIds(): Promise<Set<string>> {
+    const activities = await this.activityService.find();
+    return new Set(activities.map(a => String(a.id)));
   }
 
   /** For a fast sync with existing data, return the ISO start of the trailing window; else null (full sync). */
@@ -140,20 +202,27 @@ export class WebSyncService extends SyncService<SyncDateTime> {
   }
 
   public getSyncState(): Promise<SyncState> {
-    return Promise.all([this.getSyncDateTime(), this.activityService.count()]).then(([syncDateTime, activitiesCount]) => {
-      const hasSyncDateTime: boolean = syncDateTime && _.isNumber(syncDateTime.syncDateTime);
-      const hasActivities: boolean = activitiesCount > 0;
+    return Promise.all([this.getSyncDateTime(), this.activityService.count()]).then(
+      ([syncDateTime, activitiesCount]) => {
+        const hasSyncDateTime: boolean = syncDateTime && _.isNumber(syncDateTime.syncDateTime);
+        const hasActivities: boolean = activitiesCount > 0;
 
-      if (!hasSyncDateTime && !hasActivities) {
-        return SyncState.NOT_SYNCED;
-      } else if (!hasSyncDateTime && hasActivities) {
-        return SyncState.PARTIALLY_SYNCED;
+        if (!hasSyncDateTime && !hasActivities) {
+          return SyncState.NOT_SYNCED;
+        } else if (!hasSyncDateTime && hasActivities) {
+          return SyncState.PARTIALLY_SYNCED;
+        }
+        return SyncState.SYNCED;
       }
-      return SyncState.SYNCED;
-    });
+    );
   }
 
+  // Cancel an in-flight sync. The import loop checks `aborted` between batches and bails out
+  // without writing syncDateTime, so the next sync resumes the remaining workouts.
   public stop(): Promise<void> {
+    if (this.isSyncing) {
+      this.aborted = true;
+    }
     return Promise.resolve();
   }
 

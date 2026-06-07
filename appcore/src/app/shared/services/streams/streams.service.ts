@@ -40,6 +40,11 @@ export class StreamsService {
     return this.streamsDao.put(streamsModel);
   }
 
+  // Bulk insert with a single store persist (used by sync; ids are known-new so insert, not upsert).
+  public insertMany(streamsModels: DeflatedActivityStreams[]): Promise<void> {
+    return this.streamsDao.insertMany(streamsModels);
+  }
+
   public removeById(id: number | string): Promise<void> {
     return this.streamsDao.removeById(id);
   }

@@ -54,8 +54,8 @@ export abstract class ActivityService {
     return this.activityDao.findSorted(descending);
   }
 
-  public insertMany(activities: Activity[]): Promise<void> {
-    return this.activityDao.insertMany(activities);
+  public insertMany(activities: Activity[], waitSaveDrained: boolean = false): Promise<void> {
+    return this.activityDao.insertMany(activities, waitSaveDrained);
   }
 
   public getById(id: number | string): Promise<Activity> {

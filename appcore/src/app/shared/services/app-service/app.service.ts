@@ -3,7 +3,7 @@ import { ActivityService } from "../activity/activity.service";
 import { SyncService } from "../sync/sync.service";
 import { SyncState } from "../sync/sync-state.enum";
 import { Observable, Subject } from "rxjs";
-import { filter, map } from "rxjs/operators";
+import { filter, map, skip } from "rxjs/operators";
 import { Theme } from "../../enums/theme.enum";
 import { sleep } from "@elevate/shared/tools/sleep";
 
@@ -24,14 +24,17 @@ export abstract class AppService {
     this.themeChanges$ = new Subject<Theme>();
 
     this.isAppLoaded = false;
+    this.isSyncing = false;
 
     // Forward isSyncing$ from syncService to local observable
     this.syncService.isSyncing$.subscribe(isSyncing => {
       this.isSyncing = isSyncing;
     });
 
-    // End of syncing (including recalculation done) is seen as "history has changed"
+    // End of syncing (including recalculation done) is seen as "history has changed".
+    // skip(1) ignores the BehaviorSubject's seeded initial value so this only fires on real sync ends.
     this.historyChanges$ = this.syncService.isSyncing$.pipe(
+      skip(1),
       filter(isSyncing => isSyncing === false),
       map(() => {})
     );
