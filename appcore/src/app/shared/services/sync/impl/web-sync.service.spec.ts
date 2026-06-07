@@ -22,11 +22,42 @@ function summary(id: string, start: string): Summary {
   return { id, source: "apple_health", start, end: start };
 }
 
+// Mimics the real (no-unique-index) syncDateTime collection: findOne returns the FIRST doc and
+// seeds a null default if empty; put updates by $loki or inserts a new doc. This is what makes a
+// fresh-model put duplicate instead of update — the bug updateSyncDateTime must avoid.
+function makeSyncDateTimeDao() {
+  const docs: any[] = [];
+  let nextLoki = 1;
+  return {
+    docs,
+    findOne: jest.fn(() => {
+      if (!docs.length) {
+        docs.push({ syncDateTime: null, $loki: nextLoki++ });
+      }
+      return Promise.resolve(docs[0]);
+    }),
+    put: jest.fn((doc: any) => {
+      const existing = doc.$loki != null ? docs.find(d => d.$loki === doc.$loki) : null;
+      if (existing) {
+        Object.assign(existing, doc);
+      } else {
+        docs.push({ ...doc, $loki: nextLoki++ });
+      }
+      return Promise.resolve(doc);
+    }),
+    count: jest.fn(() => Promise.resolve(docs.length)),
+    clear: jest.fn(() => {
+      docs.length = 0;
+      return Promise.resolve();
+    })
+  };
+}
+
 describe("WebSyncService", () => {
   let service: WebSyncService;
   let detailFetchOrder: string[];
   let inserted: any[];
-  let syncDateTimePut: jest.Mock;
+  let syncDao: ReturnType<typeof makeSyncDateTimeDao>;
   let existing: { id: string }[];
 
   // The list endpoint returns workouts ascending (oldest first), like the real service.
@@ -40,7 +71,7 @@ describe("WebSyncService", () => {
     detailFetchOrder = [];
     inserted = [];
     existing = existingActivities;
-    syncDateTimePut = jest.fn((v: any) => Promise.resolve(v));
+    syncDao = makeSyncDateTimeDao();
 
     const httpClient: any = {
       get: jest.fn((url: string) => {
@@ -72,7 +103,7 @@ describe("WebSyncService", () => {
       {} as any,
       { fetch: jest.fn(() => Promise.resolve({})) } as any,
       { info: jest.fn(), debug: jest.fn(), warn: jest.fn(), error: jest.fn() } as any,
-      { findOne: jest.fn(() => Promise.resolve(null)), put: syncDateTimePut, clear: jest.fn() } as any,
+      syncDao as any,
       httpClient
     );
     return svc;
@@ -88,7 +119,10 @@ describe("WebSyncService", () => {
 
     expect(detailFetchOrder).toEqual(["w3", "w2", "w1"]);
     expect(inserted.map(a => a.id)).toEqual(["apple_health:w3", "apple_health:w2", "apple_health:w1"]);
-    expect(syncDateTimePut).toHaveBeenCalledTimes(1);
+    // A completed pass leaves exactly one syncDateTime doc holding a real number (no shadowing
+    // null/duplicate), so getSyncState reads SYNCED rather than sticking at PARTIALLY_SYNCED.
+    expect(syncDao.docs.length).toBe(1);
+    expect(typeof (await syncDao.findOne()).syncDateTime).toBe("number");
     expect(service.isSyncing).toBe(false);
   });
 
@@ -99,7 +133,7 @@ describe("WebSyncService", () => {
     // Only the unimported tail is fetched + inserted; the existing two are untouched.
     expect(detailFetchOrder).toEqual(["w1"]);
     expect(inserted.map(a => a.id)).toEqual(["apple_health:w1"]);
-    expect(syncDateTimePut).toHaveBeenCalledTimes(1);
+    expect(typeof (await syncDao.findOne()).syncDateTime).toBe("number");
   });
 
   it("does not run a second sync while one is in flight", async () => {
@@ -141,7 +175,8 @@ describe("WebSyncService", () => {
 
     expect(inserted.length).toBeGreaterThan(0);
     expect(inserted.length).toBeLessThan(many.length);
-    expect(syncDateTimePut).not.toHaveBeenCalled();
+    // Stopped mid-pass: syncDateTime is never stamped, so the next sync resumes the tail.
+    expect((await syncDao.findOne()).syncDateTime).toBeNull();
     expect(service.isSyncing).toBe(false);
   });
 });

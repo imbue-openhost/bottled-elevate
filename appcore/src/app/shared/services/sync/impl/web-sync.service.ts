@@ -238,8 +238,14 @@ export class WebSyncService extends SyncService<SyncDateTime> {
     return this.syncDateTimeDao.findOne();
   }
 
-  public updateSyncDateTime(syncDateTime: SyncDateTime): Promise<SyncDateTime> {
-    return this.syncDateTimeDao.put(syncDateTime);
+  public async updateSyncDateTime(syncDateTime: SyncDateTime): Promise<SyncDateTime> {
+    // The syncDateTime collection has no unique index, so put() on a fresh model can't find
+    // the singleton and would insert a duplicate — leaving a stale (often null) doc that
+    // findOne() returns first, pinning the app in PARTIALLY_SYNCED. Mutate the existing doc in
+    // place instead (findOne seeds one if missing), which also overwrites any stale value.
+    const existing = await this.syncDateTimeDao.findOne();
+    existing.syncDateTime = syncDateTime.syncDateTime;
+    return this.syncDateTimeDao.put(existing, true);
   }
 
   public clearSyncTime(): Promise<void> {
