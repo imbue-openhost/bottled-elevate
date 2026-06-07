@@ -5,7 +5,7 @@ import { MatDialog } from "@angular/material/dialog";
 import { MatSnackBar } from "@angular/material/snack-bar";
 import { SyncState } from "../../shared/services/sync/sync-state.enum";
 import { AppRoutes } from "../../shared/models/app-routes";
-import { SyncService } from "../../shared/services/sync/sync.service";
+import { SyncProgress, SyncService } from "../../shared/services/sync/sync.service";
 import { AppService } from "../../shared/services/app-service/app.service";
 import { ConfirmDialogDataModel } from "../../shared/dialogs/confirm-dialog/confirm-dialog-data.model";
 import { ConfirmDialogComponent } from "../../shared/dialogs/confirm-dialog/confirm-dialog.component";
@@ -20,10 +20,12 @@ import { ConfirmDialogComponent } from "../../shared/dialogs/confirm-dialog/conf
           [disabled]="appService.isSyncing"
           color="primary"
           (click)="syncMenuActions[0].action()"
-          matTooltip="{{ syncMenuActions[0]?.tooltip }}"
+          matTooltip="{{ appService.isSyncing ? 'Sync in progress…' : syncMenuActions[0]?.tooltip }}"
         >
-          <mat-icon fontSet="material-icons-outlined">{{ syncMenuActions[0].icon }}</mat-icon>
-          {{ syncMenuActions[0].text }}
+          <mat-icon fontSet="material-icons-outlined" [class.spin]="appService.isSyncing">
+            {{ appService.isSyncing ? "sync" : syncMenuActions[0].icon }}
+          </mat-icon>
+          {{ appService.isSyncing ? syncingLabel() : syncMenuActions[0].text }}
         </button>
         <button mat-icon-button color="primary" [disabled]="appService.isSyncing" [matMenuTriggerFor]="syncMenu">
           <mat-icon fontSet="material-icons-outlined">expand_more</mat-icon>
@@ -36,9 +38,26 @@ import { ConfirmDialogComponent } from "../../shared/dialogs/confirm-dialog/conf
         </button>
       </mat-menu>
     </div>
-  `
+  `,
+  styles: [
+    `
+      .spin {
+        animation: sync-menu-spin 1.2s linear infinite;
+      }
+      @keyframes sync-menu-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    `
+  ]
 })
 export class WebSyncMenuComponent extends SyncMenuComponent implements OnInit {
+  private progress: SyncProgress | null = null;
+
   constructor(
     @Inject(AppService) public readonly appService: AppService,
     @Inject(Router) protected readonly router: Router,
@@ -51,6 +70,13 @@ export class WebSyncMenuComponent extends SyncMenuComponent implements OnInit {
 
   public ngOnInit(): void {
     super.ngOnInit();
+    this.syncService.syncProgress$.subscribe(progress => (this.progress = progress));
+  }
+
+  public syncingLabel(): string {
+    return this.progress && this.progress.total > 0
+      ? `Syncing… ${this.progress.imported}/${this.progress.total}`
+      : "Sync in progress…";
   }
 
   protected updateSyncMenu(): void {
