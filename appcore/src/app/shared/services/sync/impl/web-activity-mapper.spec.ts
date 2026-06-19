@@ -17,6 +17,20 @@ const HR_TRACE = {
   ]
 };
 
+const POWER_TRACE = {
+  samples: [
+    { timestamp: "2025-01-01T00:00:00Z", value: 100 },
+    { timestamp: "2025-01-01T00:01:00Z", value: 200 }
+  ]
+};
+
+const CADENCE_TRACE = {
+  samples: [
+    { timestamp: "2025-01-01T00:00:00Z", value: 80 },
+    { timestamp: "2025-01-01T00:01:00Z", value: 100 }
+  ]
+};
+
 describe("mapWorkoutTypeToSport", () => {
   // Every workout_type present in the live Apple Health data.
   const cases: [string, ElevateSport][] = [
@@ -89,6 +103,44 @@ describe("buildStreamsFromWorkout", () => {
     expect(streams.heartrate[0]).toBe(120);
     expect(streams.heartrate[1]).toBe(140);
     expect(streams.heartrate[2]).toBe(160);
+  });
+
+  it("interpolates power and cadence onto the GPS timeline", () => {
+    const workout = {
+      workout_type: "cycling",
+      start: "2025-01-01T00:00:00Z",
+      end: "2025-01-01T00:01:00Z",
+      route_gpx: GPX,
+      heart_rate: HR_TRACE,
+      power: POWER_TRACE,
+      cadence: CADENCE_TRACE
+    } as ProviderWorkout;
+
+    const streams = buildStreamsFromWorkout(workout, 60);
+    expect(streams.time).toEqual([0, 30, 60]);
+    // Power: 100 at t=0, 150 at t=30, 200 at t=60.
+    expect(streams.watts).toEqual([100, 150, 200]);
+    // Cadence: 80 at t=0, 90 at t=30, 100 at t=60.
+    expect(streams.cadence).toEqual([80, 90, 100]);
+  });
+
+  it("builds a power/cadence timeline indoors with no route", () => {
+    const workout = {
+      workout_type: "cycling",
+      start: "2025-01-01T00:00:00Z",
+      end: "2025-01-01T00:01:00Z",
+      is_indoor: true,
+      power: POWER_TRACE,
+      cadence: CADENCE_TRACE
+    } as ProviderWorkout;
+
+    const streams = buildStreamsFromWorkout(workout, 60);
+    expect(streams).not.toBeNull();
+    expect(streams.time).toEqual([0, 60]);
+    expect(streams.watts).toEqual([100, 200]);
+    expect(streams.cadence).toEqual([80, 100]);
+    expect(streams.latlng).toBeUndefined();
+    expect(streams.heartrate).toBeUndefined();
   });
 
   it("builds an HR-only timeline when there is no route (indoor)", () => {

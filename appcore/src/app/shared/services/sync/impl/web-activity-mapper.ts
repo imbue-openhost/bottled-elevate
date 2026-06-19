@@ -46,8 +46,14 @@ export interface ProviderWorkout {
   elevation_gain?: ProviderScalar; // meters
   average_pace?: ProviderScalar; // s/km
   temperature?: ProviderScalar; // °C
+  average_power?: ProviderScalar; // watts
+  max_power?: ProviderScalar; // watts
+  average_cadence?: ProviderScalar; // rpm
+  max_cadence?: ProviderScalar; // rpm
 
   heart_rate?: ProviderTimeSeries; // per-sample HR trace (detail endpoint only)
+  power?: ProviderTimeSeries; // per-sample power trace (detail endpoint only)
+  cadence?: ProviderTimeSeries; // per-sample cadence trace (detail endpoint only)
   route_gpx?: string; // GPX 1.1 document (detail endpoint only)
 }
 
@@ -242,7 +248,7 @@ export async function buildActivityFromWorkout(
   activity.endTime = workout.end;
   activity.startTimestamp = startTimestamp;
   activity.endTimestamp = endTimestamp;
-  activity.hasPowerMeter = false; // no power trace from Apple Health
+  activity.hasPowerMeter = !!streams?.watts?.length;
   activity.trainer = false;
   activity.commute = false;
   activity.manual = false;
@@ -281,7 +287,7 @@ export async function buildActivityFromWorkout(
 }
 
 // ---------------------------------------------------------------------------
-// Stream extraction (HR trace + GPS route)
+// Stream extraction (HR / power / cadence traces + GPS route)
 // ---------------------------------------------------------------------------
 
 interface GpxPoint {
@@ -291,30 +297,36 @@ interface GpxPoint {
   ele: number | null;
 }
 
-interface HrSample {
+interface TimedSample {
   t: number; // epoch ms
   v: number;
 }
 
 /**
- * Build elevate Streams from the workout's HR trace and/or GPS route.
- * With a route, the trackpoints form the timeline and HR is interpolated onto it;
- * otherwise an HR-only timeline is produced. Returns null when neither is present.
+ * Build elevate Streams from the workout's sensor traces (HR, power, cadence)
+ * and/or GPS route. With a route, the trackpoints form the timeline and each
+ * trace is interpolated onto it; otherwise the densest trace forms the timeline.
+ * Returns null when no usable trace or route is present.
  */
 export function buildStreamsFromWorkout(workout: ProviderWorkout, durationS: number): Streams | null {
-  const hrSamples = parseHrSamples(workout.heart_rate);
+  const hrSamples = parseSamples(workout.heart_rate);
+  const powerSamples = parseSamples(workout.power);
+  const cadenceSamples = parseSamples(workout.cadence);
   const gpxPoints = workout.route_gpx ? parseGpxTrack(workout.route_gpx) : [];
 
   if (gpxPoints.length >= 2 && !workout.is_indoor) {
-    return streamsFromRoute(gpxPoints, hrSamples, durationS);
+    return streamsFromRoute(gpxPoints, hrSamples, powerSamples, cadenceSamples, durationS);
   }
-  if (hrSamples.length >= 2) {
-    return streamsFromHrOnly(hrSamples);
+  // No usable route: build the timeline from the richest sensor trace and
+  // interpolate the others onto it.
+  const base = [hrSamples, powerSamples, cadenceSamples].filter(s => s.length >= 2).sort((a, b) => b.length - a.length)[0];
+  if (base) {
+    return streamsFromSensors(base, hrSamples, powerSamples, cadenceSamples);
   }
   return null;
 }
 
-function parseHrSamples(trace: ProviderTimeSeries | undefined): HrSample[] {
+function parseSamples(trace: ProviderTimeSeries | undefined): TimedSample[] {
   if (!trace?.samples?.length) {
     return [];
   }
@@ -362,8 +374,8 @@ function haversineMeters(aLat: number, aLon: number, bLat: number, bLon: number)
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** Linearly interpolate HR (epoch ms) onto an arbitrary time, clamping at the ends. */
-function interpolateHr(samples: HrSample[], t: number): number | null {
+/** Linearly interpolate a sample value (epoch ms) onto an arbitrary time, clamping at the ends. */
+function interpolateSample(samples: TimedSample[], t: number): number | null {
   if (!samples.length) {
     return null;
   }
@@ -385,7 +397,13 @@ function interpolateHr(samples: HrSample[], t: number): number | null {
   return samples[samples.length - 1].v;
 }
 
-function streamsFromRoute(points: GpxPoint[], hrSamples: HrSample[], durationS: number): Streams {
+function streamsFromRoute(
+  points: GpxPoint[],
+  hrSamples: TimedSample[],
+  powerSamples: TimedSample[],
+  cadenceSamples: TimedSample[],
+  durationS: number
+): Streams {
   const streams = new Streams();
   const n = points.length;
   const t0 = points[0].t;
@@ -399,9 +417,9 @@ function streamsFromRoute(points: GpxPoint[], hrSamples: HrSample[], durationS: 
     streams.altitude = [];
     streams.grade_smooth = [];
   }
-  if (hrSamples.length) {
-    streams.heartrate = [];
-  }
+  if (hrSamples.length) streams.heartrate = [];
+  if (powerSamples.length) streams.watts = [];
+  if (cadenceSamples.length) streams.cadence = [];
 
   let cumDist = 0;
   for (let i = 0; i < n; i++) {
@@ -427,20 +445,37 @@ function streamsFromRoute(points: GpxPoint[], hrSamples: HrSample[], durationS: 
       streams.grade_smooth.push(+grade.toFixed(1));
     }
 
+    const at = p.t !== null ? p.t : (t0 ?? 0) + time * 1000;
     if (hrSamples.length) {
-      const at = p.t !== null ? p.t : (t0 ?? 0) + time * 1000;
-      streams.heartrate.push(interpolateHr(hrSamples, at) ?? hrSamples[0].v);
+      streams.heartrate.push(interpolateSample(hrSamples, at) ?? hrSamples[0].v);
+    }
+    if (powerSamples.length) {
+      streams.watts.push(interpolateSample(powerSamples, at) ?? powerSamples[0].v);
+    }
+    if (cadenceSamples.length) {
+      streams.cadence.push(interpolateSample(cadenceSamples, at) ?? cadenceSamples[0].v);
     }
   }
 
   return streams;
 }
 
-function streamsFromHrOnly(hrSamples: HrSample[]): Streams {
+/**
+ * Build streams from sensor traces with no GPS: the densest trace (base) forms
+ * the timeline, and every available trace is interpolated onto it.
+ */
+function streamsFromSensors(
+  base: TimedSample[],
+  hrSamples: TimedSample[],
+  powerSamples: TimedSample[],
+  cadenceSamples: TimedSample[]
+): Streams {
   const streams = new Streams();
-  const t0 = hrSamples[0].t;
-  streams.time = hrSamples.map(s => Math.round((s.t - t0) / 1000));
-  streams.heartrate = hrSamples.map(s => Math.round(s.v));
+  const t0 = base[0].t;
+  streams.time = base.map(s => Math.round((s.t - t0) / 1000));
+  if (hrSamples.length) streams.heartrate = base.map(s => interpolateSample(hrSamples, s.t) ?? hrSamples[0].v);
+  if (powerSamples.length) streams.watts = base.map(s => interpolateSample(powerSamples, s.t) ?? powerSamples[0].v);
+  if (cadenceSamples.length) streams.cadence = base.map(s => interpolateSample(cadenceSamples, s.t) ?? cadenceSamples[0].v);
   return streams;
 }
 
