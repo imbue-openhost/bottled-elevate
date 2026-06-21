@@ -1,0 +1,62 @@
+[project]
+name = "openhost-elevate-server"
+version = "0.1.0"
+description = "Serves the Elevate web build, persists app data in sqlite, and proxies the health-data service"
+requires-python = "==3.12.*"
+dependencies = [
+    "litestar>=2.12",
+    "hypercorn>=0.17",
+    "httpx>=0.27",
+    "attrs>=24.0",
+    "loguru>=0.7.3",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest>=8.0",
+    "httpx>=0.27",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/server"]
+
+[tool.pytest.ini_options]
+addopts = "-v"
+
+[tool.ruff]
+line-length = 119
+exclude = []
+
+[tool.ruff.lint]
+select = [
+    "E",       # pycodestyle errors
+    "F",       # pyflakes
+    "B",       # flake8-bugbear
+    "UP",      # pyupgrade (modern Python syntax)
+    "I",       # isort
+    "PLC0415", # import-outside-top-level
+]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.isort]
+force-single-line = true
+case-sensitive = true
+known-first-party = ["server"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = ["src"]
+packages = ["server"]
+strict = true
+ignore_missing_imports = true
+exclude = []

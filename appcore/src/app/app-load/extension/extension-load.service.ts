@@ -12,6 +12,9 @@ export class ExtensionLoadService extends AppLoadService {
   }
 
   public loadApp(): Promise<void> {
-    return sleep(this.SPLASH_SCREEN_MIN_TIME_DISPLAYED);
+    // Wait for the datastore to finish hydrating from the server (super.loadApp resolves on
+    // DbEvent.LOADED) so the app never queries an empty in-memory db, while keeping the splash
+    // visible for a minimum time.
+    return Promise.all([super.loadApp(), sleep(this.SPLASH_SCREEN_MIN_TIME_DISPLAYED)]).then(() => undefined);
   }
 }

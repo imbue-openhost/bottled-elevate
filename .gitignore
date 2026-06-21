@@ -4,5 +4,14 @@
 **/package/
 **/coverage/
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+local-data/
+
 # OS
 .DS_Store

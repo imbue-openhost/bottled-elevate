@@ -19,16 +19,19 @@ RUN npm run postinstall \
     && npm run build -- --configuration=web-prod
 # Output: /build/dist/app
 
-# ---- Stage 2: serve static build + proxy the health-data service ----
+# ---- Stage 2: serve static build + sqlite-backed store API + health-data proxy ----
 FROM python:3.12-slim AS serve
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
-RUN pip install --no-cache-dir "litestar[standard]>=2.12" "httpx>=0.27"
+# Python deps first (cached unless the manifests or server sources change).
+COPY pyproject.toml uv.lock ./
+COPY src/ src/
+RUN uv sync --frozen --no-dev
 
-# Static build first, then app.py last so a backend-only edit redoes just the tiny layer.
+# Static Angular build from stage 1 (copied late so a backend edit doesn't redo it).
 COPY --from=build /build/dist/app /app/static
-COPY backend/app.py ./app.py
 
 ENV ELEVATE_STATIC_DIR=/app/static
 EXPOSE 8080
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "--frozen", "--no-dev", "hypercorn", "server.app:app", "--bind", "0.0.0.0:8080"]

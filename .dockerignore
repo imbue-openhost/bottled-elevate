@@ -5,4 +5,10 @@
 **/.angular
 .screenshots
 resources
-backend/.venv
+.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.mypy_cache
+local-data
+tests

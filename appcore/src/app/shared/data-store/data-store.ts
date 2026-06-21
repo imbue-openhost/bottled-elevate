@@ -13,12 +13,28 @@ export enum DbEvent {
   SAVED
 }
 
+export interface RemoteRecord {
+  key: string;
+  value: any;
+}
+
+export type HydratePayload = { [collection: string]: any[] };
+
+/**
+ * In-memory Loki database used purely as the session query engine. Durability lives entirely on
+ * the server: collections are hydrated from it on load and every mutation is written through to it
+ * (see the remote* hooks). Loki itself never persists to the browser.
+ *
+ * Large collections can be flagged `lazy` on their CollectionDef: they are never hydrated or held
+ * in memory, and are read/written one record at a time straight against the server instead.
+ */
 export abstract class DataStore<T extends {}> {
   protected constructor(@Inject(LoggerService) protected readonly logger: LoggerService) {
     this.initDatabase();
   }
 
   private static readonly DATABASE_NAME = "elevate";
+  private static readonly SINGLETON_KEY = "singleton";
   private static readonly DEFAULT_LOKI_ID_FIELD = "$loki";
   private static readonly DEFAULT_LOKI_META_FIELD = "meta";
   public db: LokiConstructor;
@@ -55,15 +71,35 @@ export abstract class DataStore<T extends {}> {
 
   public abstract getAppUsageDetails(): Promise<AppUsageDetails>;
 
-  public getDbOptions(): Partial<LokiConstructorOptions> &
-    Partial<LokiConfigOptions> &
-    Partial<ThrottledSaveDrainOptions> {
+  // --- Remote persistence hooks. Default to no-ops so an in-memory store (eg tests) works with no
+  //     backend; the web store overrides them to read/write the server. ---
+
+  protected remoteHydrate(): Promise<HydratePayload> {
+    return Promise.resolve({});
+  }
+
+  protected remoteUpsert(collection: string, records: RemoteRecord[]): Promise<void> {
+    return Promise.resolve();
+  }
+
+  protected remoteDelete(collection: string, keys: string[]): Promise<void> {
+    return Promise.resolve();
+  }
+
+  protected remoteClear(collection: string): Promise<void> {
+    return Promise.resolve();
+  }
+
+  protected remoteGetOne(collection: string, key: string): Promise<any | null> {
+    return Promise.resolve(null);
+  }
+
+  public getDbOptions(): Partial<LokiConstructorOptions> & Partial<LokiConfigOptions> {
     return {
       adapter: this.getPersistenceAdapter(),
       env: "BROWSER",
       autosave: false,
       autoload: true,
-      throttledSaves: true,
       autoloadCallback: err => this.onAutoLoadDone(err)
     };
   }
@@ -77,7 +113,7 @@ export abstract class DataStore<T extends {}> {
       return collection;
     }
 
-    // Else try to get it from database through lokijs
+    // Else try to get it from database through lokijs (it may have been hydrated already)
     collection = this.db.getCollection(collectionDef.name);
 
     // If missing collection then create it...
@@ -137,39 +173,49 @@ export abstract class DataStore<T extends {}> {
   }
 
   public update(collectionDef: CollectionDef<T>, doc: T, waitSaveDrained: boolean): Promise<T> {
+    if (collectionDef.lazy) {
+      return this.remoteUpsert(collectionDef.name, [this.toRemoteRecord(collectionDef, doc)]).then(() => doc);
+    }
     const updatedDoc = this.resolveCollection(collectionDef).update(doc);
-
-    const updatePromise = Promise.resolve(updatedDoc);
-
-    return this.persist(waitSaveDrained).then(() => {
-      return updatePromise;
-    });
+    return this.remoteUpsert(collectionDef.name, [this.toRemoteRecord(collectionDef, doc)]).then(() => updatedDoc);
   }
 
   public updateMany(collectionDef: CollectionDef<T>, docs: T[], waitSaveDrained: boolean): Promise<void> {
-    this.resolveCollection(collectionDef).update(docs);
-
-    return this.persist(waitSaveDrained);
+    if (!docs.length) {
+      return Promise.resolve();
+    }
+    if (!collectionDef.lazy) {
+      this.resolveCollection(collectionDef).update(docs);
+    }
+    return this.remoteUpsert(collectionDef.name, this.toRemoteRecords(collectionDef, docs));
   }
 
   public insert(collectionDef: CollectionDef<T>, doc: T, waitSaveDrained: boolean): Promise<T> {
+    if (collectionDef.lazy) {
+      return this.remoteUpsert(collectionDef.name, [this.toRemoteRecord(collectionDef, doc)]).then(() => doc);
+    }
     const insertedDoc = this.resolveCollection(collectionDef).insert(doc);
-
-    const insertedPromise = Promise.resolve(insertedDoc);
-
-    return this.persist(waitSaveDrained).then(() => {
-      return insertedPromise;
-    });
+    return this.remoteUpsert(collectionDef.name, [this.toRemoteRecord(collectionDef, insertedDoc)]).then(
+      () => insertedDoc
+    );
   }
 
   public insertMany(collectionDef: CollectionDef<T>, docs: T[], waitSaveDrained: boolean): Promise<void> {
-    this.resolveCollection(collectionDef).insert(docs);
-
-    return this.persist(waitSaveDrained);
+    if (!docs.length) {
+      return Promise.resolve();
+    }
+    if (collectionDef.lazy) {
+      return this.remoteUpsert(collectionDef.name, this.toRemoteRecords(collectionDef, docs));
+    }
+    const inserted = this.resolveCollection(collectionDef).insert(docs);
+    const insertedDocs = (Array.isArray(inserted) ? inserted : [inserted]) as T[];
+    return this.remoteUpsert(collectionDef.name, this.toRemoteRecords(collectionDef, insertedDocs));
   }
 
   public put(collectionDef: CollectionDef<T>, doc: T, waitSaveDrained: boolean): Promise<T> {
-    let putPromise;
+    if (collectionDef.lazy) {
+      return this.remoteUpsert(collectionDef.name, [this.toRemoteRecord(collectionDef, doc)]).then(() => doc);
+    }
 
     const collection = this.resolveCollection(collectionDef);
 
@@ -185,16 +231,18 @@ export abstract class DataStore<T extends {}> {
 
     if (existingDoc) {
       const updatedDoc = _.assign(existingDoc, doc);
-      putPromise = this.update(collectionDef, updatedDoc, waitSaveDrained);
-    } else {
-      // The doc don't exists. Do a create.
-      putPromise = this.insert(collectionDef, doc, waitSaveDrained);
+      return this.update(collectionDef, updatedDoc, waitSaveDrained);
     }
 
-    return putPromise;
+    // The doc don't exists. Do a create.
+    return this.insert(collectionDef, doc, waitSaveDrained);
   }
 
   public getById(collectionDef: CollectionDef<T>, id: number | string): Promise<T> {
+    if (collectionDef.lazy) {
+      return this.remoteGetOne(collectionDef.name, String(id)) as Promise<T>;
+    }
+
     const collection = this.resolveCollection(collectionDef);
 
     // Resolve unique field on which we will perform the request
@@ -208,24 +256,22 @@ export abstract class DataStore<T extends {}> {
   }
 
   public remove(collectionDef: CollectionDef<T>, doc: T, waitSaveDrained: boolean): Promise<void> {
-    this.resolveCollection(collectionDef).remove(doc);
-
-    return this.persist(waitSaveDrained);
+    const key = this.remoteKey(collectionDef, doc);
+    if (!collectionDef.lazy) {
+      this.resolveCollection(collectionDef).remove(doc);
+    }
+    return this.remoteDelete(collectionDef.name, [key]);
   }
 
   public removeById(collectionDef: CollectionDef<T>, id: number | string, waitSaveDrained: boolean): Promise<void> {
-    const collection = this.resolveCollection(collectionDef);
-
-    // Resolve unique field on which we will perform the request
-    const idField = this.extractDefaultFieldId(collection);
-
-    // Format query
-    const query: any = {};
-    query[idField] = id;
-
-    collection.removeWhere(query);
-
-    return this.persist(waitSaveDrained);
+    if (!collectionDef.lazy) {
+      const collection = this.resolveCollection(collectionDef);
+      const idField = this.extractDefaultFieldId(collection);
+      const query: any = {};
+      query[idField] = id;
+      collection.removeWhere(query);
+    }
+    return this.remoteDelete(collectionDef.name, [String(id)]);
   }
 
   public removeByManyIds(
@@ -233,18 +279,17 @@ export abstract class DataStore<T extends {}> {
     ids: (number | string)[],
     waitSaveDrained: boolean
   ): Promise<void> {
-    const collection = this.resolveCollection(collectionDef);
-
-    // Resolve unique field on which we will perform the request
-    const idField = this.extractDefaultFieldId(collection);
-
-    // Format query
-    const query: any = {};
-    query[idField] = { $in: ids };
-
-    collection.removeWhere(query);
-
-    return this.persist(waitSaveDrained);
+    if (!ids.length) {
+      return Promise.resolve();
+    }
+    if (!collectionDef.lazy) {
+      const collection = this.resolveCollection(collectionDef);
+      const idField = this.extractDefaultFieldId(collection);
+      const query: any = {};
+      query[idField] = { $in: ids };
+      collection.removeWhere(query);
+    }
+    return this.remoteDelete(collectionDef.name, ids.map(String));
   }
 
   public count(collectionDef: CollectionDef<T>, query?: LokiQuery<T & LokiObj>): Promise<number> {
@@ -253,44 +298,34 @@ export abstract class DataStore<T extends {}> {
   }
 
   public clear(collectionDef: CollectionDef<T>, waitSaveDrained: boolean): Promise<void> {
-    this.resolveCollection(collectionDef).removeDataOnly();
-    return this.persist(waitSaveDrained);
+    if (!collectionDef.lazy) {
+      this.resolveCollection(collectionDef).removeDataOnly();
+    }
+    return this.remoteClear(collectionDef.name);
   }
 
   /**
-   * Force persistence of data store
+   * No-op: mutations already write through to the server, so there is nothing buffered to flush.
+   * Kept so existing callers (which used to persist the Loki db to disk) keep working unchanged.
    */
   public persist(waitSaveDrained: boolean): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.db.saveDatabase(err => {
-        if (err) {
-          reject(err);
-        } else {
-          if (waitSaveDrained) {
-            this.db.throttledSaveDrain(success => {
-              if (success) {
-                this.logger.debug("Datastore saved after saves drained");
-                resolve();
-              } else {
-                reject("Saves drain failure");
-              }
-            });
-          } else {
-            resolve();
-            this.logger.debug("Datastore saved");
-          }
-        }
-      });
-    });
+    return Promise.resolve();
   }
 
+  /** Drop the in-memory collections and re-pull them from the server (the source of truth). */
   public reload(options?: Partial<ThrottledSaveDrainOptions>): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.db.loadDatabase(options, (err: any) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
+    this.db.collections.slice().forEach(collection => this.db.removeCollection(collection.name));
+    this.COLLECTIONS_MAP.clear();
+    return this.hydrateEager();
+  }
+
+  protected hydrateEager(): Promise<void> {
+    return this.remoteHydrate().then(payload => {
+      Object.keys(payload || {}).forEach(name => {
+        const docs = payload[name] || [];
+        const collection = this.db.getCollection(name) || this.db.addCollection(name);
+        if (docs.length) {
+          collection.insert(docs);
         }
       });
     });
@@ -298,24 +333,36 @@ export abstract class DataStore<T extends {}> {
 
   protected onAutoLoadDone(err: Error): void {
     if (err) {
-      // Broadcast database error
       this.dbEvent$.error(err);
       this.logger.error(err);
-    } else {
-      // Broadcast database auto loaded event
-      this.dbEvent$.next(DbEvent.LOADED);
-
-      // Allow access to database directly from window for debugging
-      (window as any).db = this.db;
-
-      // Allow access to collection data directly from window for debugging
-      if (!environment.production) {
-        (window as any).data = {};
-        this.db.collections.forEach(collection => {
-          (window as any).data[collection.name] = collection.data;
-        });
-      }
+      return;
     }
+
+    // Loki's in-memory adapter fires this synchronously from the base constructor, before the
+    // subclass constructor (which wires the HttpClient used by the remote hooks) has run. Defer
+    // hydration a tick so those hooks are usable. dbEvent$ is a ReplaySubject, so a late LOADED
+    // still reaches subscribers.
+    setTimeout(() => {
+      this.hydrateEager()
+        .then(() => {
+          this.dbEvent$.next(DbEvent.LOADED);
+
+          // Allow access to database directly from window for debugging
+          (window as any).db = this.db;
+
+          // Allow access to collection data directly from window for debugging
+          if (!environment.production) {
+            (window as any).data = {};
+            this.db.collections.forEach(collection => {
+              (window as any).data[collection.name] = collection.data;
+            });
+          }
+        })
+        .catch(error => {
+          this.dbEvent$.error(error);
+          this.logger.error(error);
+        });
+    });
   }
 
   private extractDefaultFieldId(collection: Collection<T>): keyof T | "$loki" {
@@ -324,5 +371,25 @@ export abstract class DataStore<T extends {}> {
       return defaultIndex;
     }
     return DataStore.DEFAULT_LOKI_ID_FIELD;
+  }
+
+  /** Server key for a doc: its unique-indexed field, or a constant for singleton collections. */
+  private remoteKey(collectionDef: CollectionDef<T>, doc: T): string {
+    const unique = collectionDef.options && (collectionDef.options.unique as (keyof T)[] | undefined);
+    if (unique && unique.length) {
+      return String((doc as any)[unique[0]]);
+    }
+    return DataStore.SINGLETON_KEY;
+  }
+
+  private toRemoteRecord(collectionDef: CollectionDef<T>, doc: T): RemoteRecord {
+    const value: any = { ...(doc as any) };
+    delete value[DataStore.DEFAULT_LOKI_ID_FIELD];
+    delete value[DataStore.DEFAULT_LOKI_META_FIELD];
+    return { key: this.remoteKey(collectionDef, doc), value };
+  }
+
+  private toRemoteRecords(collectionDef: CollectionDef<T>, docs: T[]): RemoteRecord[] {
+    return docs.map(doc => this.toRemoteRecord(collectionDef, doc));
   }
 }

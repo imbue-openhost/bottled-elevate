@@ -5,9 +5,15 @@ import { DeflatedActivityStreams } from "@elevate/shared/models/sync/deflated-ac
 
 @Injectable()
 export class StreamsDao extends BaseDao<DeflatedActivityStreams> {
-  public static readonly COLLECTION_DEF: CollectionDef<DeflatedActivityStreams> = new CollectionDef("streams", {
-    unique: ["activityId"]
-  });
+  // Lazy: streams are large and only ever read one activity at a time on the detail view, so they
+  // stay server-side and are fetched by id on demand rather than hydrated into memory.
+  public static readonly COLLECTION_DEF: CollectionDef<DeflatedActivityStreams> = new CollectionDef(
+    "streams",
+    {
+      unique: ["activityId"]
+    },
+    true
+  );
 
   public getCollectionDef(): CollectionDef<DeflatedActivityStreams> {
     return StreamsDao.COLLECTION_DEF;
