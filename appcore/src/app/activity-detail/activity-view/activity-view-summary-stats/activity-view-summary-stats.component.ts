@@ -1,4 +1,4 @@
-import { Component, Inject, Input, OnInit } from "@angular/core";
+import { Component, Inject, Input, OnChanges } from "@angular/core";
 import { ActivityStatsService } from "../shared/activity-stats.service";
 import { StatDisplay } from "../shared/models/stats/display/stat-display.model";
 import { MediaObserver } from "@angular/flex-layout";
@@ -12,7 +12,7 @@ import { Activity } from "@elevate/shared/models/sync/activity.model";
   templateUrl: "./activity-view-summary-stats.component.html",
   styleUrls: ["./activity-view-summary-stats.component.scss"]
 })
-export class ActivityViewSummaryStatsComponent implements OnInit {
+export class ActivityViewSummaryStatsComponent implements OnChanges {
   public summaryStatDisplays: StatDisplay[];
 
   public columnsCount: number;
@@ -33,7 +33,8 @@ export class ActivityViewSummaryStatsComponent implements OnInit {
     @Inject(MediaObserver) public readonly mediaObserver: MediaObserver
   ) {}
 
-  public ngOnInit(): void {
+  // hasMapData resolves asynchronously after streams load, so recompute on every input change.
+  public ngOnChanges(): void {
     this.columnsCount = this.hasMapData
       ? SummaryStatsGroup.DEFAULT_COLUMNS_COUNT
       : SummaryStatsGroup.DEFAULT_COLUMNS_COUNT * SummaryStatsGroup.DEFAULT_ROW_COUNT;
