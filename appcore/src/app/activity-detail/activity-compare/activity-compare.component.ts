@@ -145,7 +145,7 @@ export class ActivityCompareComponent implements OnInit {
           this.workouts = foundActivities.map((activity, index) => {
             return {
               activity: activity,
-              streams: activity.isSwimPool ? null : streamsList[index],
+              streams: streamsList[index],
               color: COMPARE_COLOR_PALETTE[index % COMPARE_COLOR_PALETTE.length],
               label: `${moment(activity.startTime).format("ll")} · ${activity.name}`
             };

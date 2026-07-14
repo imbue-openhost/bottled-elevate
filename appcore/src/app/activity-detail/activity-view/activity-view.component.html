@@ -104,13 +104,13 @@
       </div>
     </div>
 
-    <app-activity-graph-chart *ngIf="streams && displayGraph && !activity.isSwimPool"
+    <app-activity-graph-chart *ngIf="streams && displayGraph"
                               [measureSystem]="userSettings.systemUnit"
                               [activity]="activity"
                               [streams]="streams">
     </app-activity-graph-chart>
 
-    <div *ngIf="streams && !activity.isSwimPool" fxLayoutAlign="center start" fxFill
+    <div *ngIf="streams" fxLayoutAlign="center start" fxFill
          class="display-analysis-graph-button">
       <button mat-stroked-button color="primary" fxFill (click)="displayGraph = !displayGraph">
         <mat-icon fontSet="material-icons-outlined"
