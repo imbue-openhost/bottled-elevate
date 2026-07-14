@@ -17,6 +17,7 @@ import { Constant } from "@elevate/shared/constants/constant";
 import { ElevateException } from "@elevate/shared/exceptions/elevate.exception";
 import { Activity } from "@elevate/shared/models/sync/activity.model";
 import { ElevationSensor } from "../shared/models/sensors/elevation.sensor";
+import { SMOOTHING_OPTIONS, SmoothingOption, smoothStream } from "../shared/stream-smoother";
 
 enum ScaleMode {
   TIME,
@@ -89,7 +90,11 @@ export class ActivityGraphChartComponent extends BaseChartComponent<ScatterChart
 
   public readonly ScaleMode = ScaleMode;
 
+  public readonly smoothingOptions: SmoothingOption[] = SMOOTHING_OPTIONS;
+
   public scaleMode: ScaleMode;
+
+  public smoothingSeconds: number;
 
   public isZooming: boolean;
 
@@ -106,6 +111,7 @@ export class ActivityGraphChartComponent extends BaseChartComponent<ScatterChart
   ) {
     super(appService, plotlyService);
     this.isZooming = false;
+    this.smoothingSeconds = 0;
 
     // Add referenced debug streams for debugging activities while in development mode
     if (environment.showActivityDebugData) {
@@ -212,6 +218,15 @@ export class ActivityGraphChartComponent extends BaseChartComponent<ScatterChart
       return;
     }
 
+    // Smooth each sensor's y-stream over the activity time stream (x scale mode independent)
+    const smoothedStreamsBySensor = new Map<string, number[]>();
+    for (const sensor of this.availableSensors) {
+      smoothedStreamsBySensor.set(
+        sensor.name,
+        smoothStream(this.streams.time, this.streams[sensor.streamKey] as number[], this.smoothingSeconds)
+      );
+    }
+
     scaleStream.forEach((scaleValue: number, index: number) => {
       // Set x value along scale mode type
       let xValue: Datum | number;
@@ -233,7 +248,7 @@ export class ActivityGraphChartComponent extends BaseChartComponent<ScatterChart
         (traceData.x as (Datum | number)[]).push(xValue);
 
         // Foreach sensor add y axis value
-        const sensorStream = this.streams[sensor.streamKey] as number[];
+        const sensorStream = smoothedStreamsBySensor.get(sensor.name);
         const yValue = sensor.fromStreamConvert(sensorStream[index], this.measureSystem);
 
         // Test y-axis type
@@ -362,6 +377,12 @@ export class ActivityGraphChartComponent extends BaseChartComponent<ScatterChart
       domainMarginRight: domainMarginRight,
       yAxisPadding: yAxisPadding
     };
+  }
+
+  public onSmoothingChange(windowSeconds: number): void {
+    this.smoothingSeconds = windowSeconds;
+    this.resetZoom();
+    this.updateActivityGraph();
   }
 
   /**

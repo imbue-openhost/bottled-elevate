@@ -41,11 +41,19 @@
             Time scale
           </ng-container>
         </button>
+
+        <mat-button-toggle-group class="smoothing-toggle" [value]="smoothingSeconds"
+                                 (change)="onSmoothingChange($event.value)"
+                                 matTooltip="Smoothing (centered moving average)">
+          <mat-button-toggle *ngFor="let option of smoothingOptions"
+                             [value]="option.windowSeconds">{{ option.label }}</mat-button-toggle>
+        </mat-button-toggle-group>
       </div>
 
       <app-compare-graph-chart *ngFor="let row of graphRows"
                                [row]="row"
                                [scaleMode]="scaleMode"
+                               [smoothingSeconds]="smoothingSeconds"
                                [measureSystem]="userSettings.systemUnit">
       </app-compare-graph-chart>
     </div>

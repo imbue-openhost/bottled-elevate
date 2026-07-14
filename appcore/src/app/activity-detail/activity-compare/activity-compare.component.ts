@@ -10,6 +10,7 @@ import { UserSettingsService } from "../../shared/services/user-settings/user-se
 import { ActivitySensorsService } from "../activity-view/shared/activity-sensors.service";
 import { ActivityStatsService } from "../activity-view/shared/activity-stats.service";
 import { Sensor } from "../activity-view/shared/models/sensors/sensor.model";
+import { SMOOTHING_OPTIONS, SmoothingOption } from "../activity-view/shared/stream-smoother";
 import { Stat } from "../activity-view/shared/models/stats/stat.model";
 import { AppRoutes } from "../../shared/models/app-routes";
 import { MatSnackBar } from "@angular/material/snack-bar";
@@ -68,6 +69,10 @@ export class ActivityCompareComponent implements OnInit {
 
   public readonly CompareScaleMode = CompareScaleMode;
 
+  public readonly smoothingOptions: SmoothingOption[] = SMOOTHING_OPTIONS;
+
+  public smoothingSeconds: number;
+
   public workouts: ComparedWorkout[];
   public mapWorkouts: ComparedWorkout[];
   public graphRows: CompareGraphRow[];
@@ -95,6 +100,7 @@ export class ActivityCompareComponent implements OnInit {
     this.peaksRows = [];
     this.statsGroupRows = [];
     this.initialized = false;
+    this.smoothingSeconds = 0;
   }
 
   public ngOnInit(): void {
@@ -259,6 +265,10 @@ export class ActivityCompareComponent implements OnInit {
 
   public onToggleScaleMode(): void {
     this.scaleMode = this.scaleMode === CompareScaleMode.TIME ? CompareScaleMode.DISTANCE : CompareScaleMode.TIME;
+  }
+
+  public onSmoothingChange(windowSeconds: number): void {
+    this.smoothingSeconds = windowSeconds;
   }
 
   public onOpenActivity(workout: ComparedWorkout): void {

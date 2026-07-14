@@ -106,3 +106,25 @@ def _run(stack, page):
     page.wait_for_selector("app-compare-graph-chart .js-plotly-plot", timeout=30000)
     expect(page.locator("button", has_text="Distance scale")).to_be_visible()
     _shot(page, "06-compare-time-scale")
+
+    # Smoothing toggle re-renders the stack with a 30s centered moving average.
+    first_chart_y = "() => document.querySelector('app-compare-graph-chart .js-plotly-plot').data[0].y.join()"
+    raw_y = page.evaluate(first_chart_y)
+    page.locator(".smoothing-toggle mat-button-toggle", has_text="30s").click()
+    page.wait_for_selector("app-compare-graph-chart .js-plotly-plot", timeout=30000)
+    assert page.evaluate(first_chart_y) != raw_y
+    _shot(page, "07-compare-smoothed", page.locator(".graphs-stack"))
+
+    # Detail view: the analysis graph has the same smoothing control.
+    page.goto(f"{stack.url}/#/activities")
+    page.wait_for_selector("mat-row", timeout=30000)
+    page.locator("mat-row").first.dblclick()
+    page.wait_for_selector("app-activity-view", timeout=30000)
+    page.locator("button", has_text="Show analysis graph").click()
+    page.wait_for_selector("app-activity-graph-chart .js-plotly-plot", timeout=30000)
+    detail_chart_y = "() => document.querySelector('app-activity-graph-chart .js-plotly-plot').data[0].y.join()"
+    detail_raw_y = page.evaluate(detail_chart_y)
+    page.locator("app-activity-graph-chart .smoothing-toggle mat-button-toggle", has_text="2m").click()
+    page.wait_for_selector("app-activity-graph-chart .js-plotly-plot", timeout=30000)
+    assert page.evaluate(detail_chart_y) != detail_raw_y
+    _shot(page, "08-detail-smoothed", page.locator("app-activity-graph-chart"))

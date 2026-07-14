@@ -21,6 +21,16 @@
   margin-top: 15px;
 }
 
+.smoothing-toggle {
+  margin: 0 10px;
+
+  ::ng-deep .mat-button-toggle-label-content {
+    line-height: 30px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+}
+
 .stat-display-group {
   padding-left: 20px;
   margin-top: 20px;

@@ -11,6 +11,7 @@ import { MeasureSystem } from "@elevate/shared/enums/measure-system.enum";
 import { Constant } from "@elevate/shared/constants/constant";
 import { CompareScaleMode } from "../shared/compare.model";
 import { CompareGraphRow } from "../activity-compare.component";
+import { smoothStream } from "../../activity-view/shared/stream-smoother";
 
 @Component({
   selector: "app-compare-graph-chart",
@@ -38,6 +39,9 @@ export class CompareGraphChartComponent extends BaseChartComponent<ScatterChart>
   public scaleMode: CompareScaleMode;
 
   @Input()
+  public smoothingSeconds: number;
+
+  @Input()
   public measureSystem: MeasureSystem;
 
   constructor(
@@ -56,7 +60,8 @@ export class CompareGraphChartComponent extends BaseChartComponent<ScatterChart>
   }
 
   public ngOnChanges(changes: SimpleChanges): void {
-    if (changes.scaleMode && !changes.scaleMode.firstChange) {
+    if ((changes.scaleMode && !changes.scaleMode.firstChange) ||
+        (changes.smoothingSeconds && !changes.smoothingSeconds.firstChange)) {
       this.updateChart();
     }
   }
@@ -73,11 +78,13 @@ export class CompareGraphChartComponent extends BaseChartComponent<ScatterChart>
       const streams = entry.workout.streams;
       const scaleStream =
         this.scaleMode === CompareScaleMode.TIME ? streams.time : (streams.distance as number[]);
-      const sensorStream = streams[entry.sensor.streamKey] as number[];
+      const rawSensorStream = streams[entry.sensor.streamKey] as number[];
 
-      if (!scaleStream?.length || !sensorStream?.length) {
+      if (!scaleStream?.length || !rawSensorStream?.length) {
         continue;
       }
+
+      const sensorStream = smoothStream(streams.time, rawSensorStream, this.smoothingSeconds);
 
       const trace: Partial<PlotData> = {
         name: entry.workout.label,
