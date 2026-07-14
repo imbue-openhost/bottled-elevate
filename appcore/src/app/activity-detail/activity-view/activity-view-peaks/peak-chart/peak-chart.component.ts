@@ -19,7 +19,7 @@ import { ActivityViewService } from "../../shared/activity-view.service";
   styleUrls: ["./peak-chart.component.scss"]
 })
 export class PeakChartComponent extends BaseChartComponent<LogChart> implements OnInit {
-  private static readonly TIME_TICKS: number[] = [
+  public static readonly TIME_TICKS: number[] = [
     1,
     2,
     5,

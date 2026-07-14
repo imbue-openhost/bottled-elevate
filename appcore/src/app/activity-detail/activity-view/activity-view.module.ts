@@ -19,6 +19,11 @@ import { ActivityStatsService } from "./shared/activity-stats.service";
 import { ActivitySensorsService } from "./shared/activity-sensors.service";
 import { ActivityEditDialogComponent } from "./activity-edit/activity-edit-dialog.component";
 import { ActivityViewMapComponent } from "./activity-view-map/activity-view-map.component";
+import { ActivityCompareComponent } from "../activity-compare/activity-compare.component";
+import { CompareMapComponent } from "../activity-compare/compare-map/compare-map.component";
+import { CompareGraphChartComponent } from "../activity-compare/compare-graph-chart/compare-graph-chart.component";
+import { CompareStatChartComponent } from "../activity-compare/compare-stat-chart/compare-stat-chart.component";
+import { ComparePeakChartComponent } from "../activity-compare/compare-peak-chart/compare-peak-chart.component";
 
 PlotlyModule.plotlyjs = PlotlyJS;
 
@@ -36,7 +41,12 @@ PlotlyModule.plotlyjs = PlotlyJS;
     PeakChartComponent,
     ActivityViewSummaryStatsComponent,
     ActivityViewStatsComponent,
-    ActivityEditDialogComponent
+    ActivityEditDialogComponent,
+    ActivityCompareComponent,
+    CompareMapComponent,
+    CompareGraphChartComponent,
+    CompareStatChartComponent,
+    ComparePeakChartComponent
   ],
   providers: [ActivityViewService, ActivitySensorsService, ActivityStatsService, TimeInZonesService]
 })

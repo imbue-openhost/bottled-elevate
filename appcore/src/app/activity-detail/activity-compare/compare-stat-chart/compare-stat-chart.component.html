@@ -1,0 +1,12 @@
+<div class="stat-chart" [matTooltip]="stat.description">
+  <div class="mat-body-2 stat-chart-title">
+    {{ stat.name }}<span *ngIf="unit" class="mat-caption">&nbsp;➔&nbsp;{{ unit }}</span>
+  </div>
+  <plotly-plot *ngIf="chart.data.length"
+               [divId]="chart.id"
+               [data]="chart.data"
+               [layout]="chart.layout"
+               [config]="chart.config"
+               [useResizeHandler]="chart.useResizeHandler">
+  </plotly-plot>
+</div>

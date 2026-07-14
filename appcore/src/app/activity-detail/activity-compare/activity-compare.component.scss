@@ -1,0 +1,34 @@
+.workouts-legend {
+  margin-top: 5px;
+
+  .workout-chip {
+    display: flex;
+    align-items: center;
+    margin-right: 20px;
+    margin-bottom: 5px;
+  }
+
+  .workout-color-dot {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+}
+
+.graphs-stack {
+  margin-top: 15px;
+}
+
+.stat-display-group {
+  padding-left: 20px;
+  margin-top: 20px;
+  margin-bottom: 20px;
+}
+
+.stat-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-gap: 10px;
+}

@@ -1,0 +1,10 @@
+<div class="wrapper" fxFlexFill>
+  <plotly-plot class="graph-chart"
+               *ngIf="chart.data.length"
+               [divId]="chart.id"
+               [data]="chart.data"
+               [layout]="chart.layout"
+               [config]="chart.config"
+               [useResizeHandler]="chart.useResizeHandler">
+  </plotly-plot>
+</div>

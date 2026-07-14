@@ -135,6 +135,10 @@ export class ActivityStatsService {
     return emptyStatsGroup ? [] : statDisplays;
   }
 
+  public getStatsGroups(activity: Activity): StatsGroup[] {
+    return this.findStatsGroupsFromActivity(activity);
+  }
+
   public getStatsGroupsDisplays(activity: Activity, measureSystem: MeasureSystem): StatGroupsDisplay[] {
     const activityStatsGroups = this.findStatsGroupsFromActivity(activity);
 

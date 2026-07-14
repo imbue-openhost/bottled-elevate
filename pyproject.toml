@@ -17,6 +17,7 @@ dev = [
     "mypy",
     "pytest>=8.0",
     "httpx>=0.27",
+    "openhost[test-harness] @ git+https://github.com/imbue-openhost/openhost@main",
 ]
 
 [build-system]

@@ -31,6 +31,8 @@ import { UserSettings } from "@elevate/shared/models/user-settings/user-settings
 import NumberColumn = ActivityColumns.NumberColumn;
 import BaseUserSettings = UserSettings.BaseUserSettings;
 import { FieldInfo, Parser as Json2CsvParser } from "json2csv";
+import { MatCheckboxChange } from "@angular/material/checkbox";
+import { COMPARE_MAX_WORKOUTS } from "../activity-detail/activity-compare/shared/compare.model";
 
 class Preferences {
   constructor(
@@ -78,6 +80,7 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
   public activityNameSearch$: Subject<string>;
   public preferences: Preferences;
   public today: Date;
+  public compareSelectedIds: (number | string)[] = [];
 
   constructor(
     @Inject(AppService) private readonly appService: AppService,
@@ -323,7 +326,38 @@ export class ActivitiesComponent implements OnInit, OnDestroy {
       return !_.isEmpty(_.find(this.selectedColumns, { id: column.id }));
     });
 
-    this.displayedColumns = this.columns.map(column => column.id);
+    this.displayedColumns = ["compareSelect", ...this.columns.map(column => column.id)];
+  }
+
+  public isSelectedForCompare(id: number | string): boolean {
+    return this.compareSelectedIds.indexOf(id) !== -1;
+  }
+
+  public onToggleCompareSelection(activity: Activity, change: MatCheckboxChange): void {
+    const index = this.compareSelectedIds.indexOf(activity.id);
+
+    if (index !== -1) {
+      this.compareSelectedIds.splice(index, 1);
+      return;
+    }
+
+    if (this.compareSelectedIds.length >= COMPARE_MAX_WORKOUTS) {
+      change.source.checked = false;
+      this.snackBar.open(`Up to ${COMPARE_MAX_WORKOUTS} activities can be compared at once.`, "Ok", {
+        duration: 4000
+      });
+      return;
+    }
+
+    this.compareSelectedIds.push(activity.id);
+  }
+
+  public onClearCompareSelection(): void {
+    this.compareSelectedIds = [];
+  }
+
+  public onCompareSelection(): void {
+    this.router.navigate([AppRoutes.activity, "compare", this.compareSelectedIds.join(",")]);
   }
 
   public verifyTablePerformance(): void {

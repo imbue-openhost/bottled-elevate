@@ -10,7 +10,7 @@ run:
     OPENHOST_SQLITE_MAIN={{justfile_directory()}}/local-data/main.db \
     OPENHOST_ROUTER_URL=http://localhost \
     OPENHOST_APP_TOKEN=dev \
-    ELEVATE_STATIC_DIR={{justfile_directory()}}/appcore/dist/app \
+    ELEVATE_STATIC_DIR={{justfile_directory()}}/dist/app \
         uv run hypercorn server.app:app --bind 0.0.0.0:8080 --reload
 
 # Run the Python test suite.

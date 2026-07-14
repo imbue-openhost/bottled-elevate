@@ -1,0 +1,90 @@
+<div *ngIf="!initialized">
+  <mat-progress-bar mode="buffer"></mat-progress-bar>
+</div>
+
+<mat-card *ngIf="initialized">
+  <mat-card-title>
+    <div fxLayout="row" fxLayoutAlign="start center">
+      <div>
+        <button mat-icon-button color="primary" (click)="onBack()" matTooltip="Back to activities table">
+          <mat-icon fontSet="material-icons-outlined">arrow_back</mat-icon>
+        </button>
+      </div>
+      <div>
+        Compare {{ workouts.length }} activities
+      </div>
+    </div>
+  </mat-card-title>
+  <mat-card-subtitle>
+    <div fxLayout="row wrap" fxLayoutAlign="start center" class="workouts-legend">
+      <div *ngFor="let workout of workouts" class="workout-chip clickable" (click)="onOpenActivity(workout)"
+           matTooltip="Open activity">
+        <span class="workout-color-dot" [style.background-color]="workout.color"></span>
+        <span>{{ workout.label }}</span>
+      </div>
+    </div>
+  </mat-card-subtitle>
+
+  <mat-card-content>
+
+    <app-compare-map *ngIf="mapWorkouts.length" [workouts]="mapWorkouts"></app-compare-map>
+
+    <div *ngIf="graphRows.length" class="graphs-stack">
+      <div fxLayout="row" fxLayoutAlign="center center">
+        <button mat-button *ngIf="hasDistance" color="primary" (click)="onToggleScaleMode()">
+          <ng-container *ngIf="scaleMode === CompareScaleMode.TIME">
+            <mat-icon [inline]="true" fontSet="material-icons-outlined">straighten</mat-icon>
+            Distance scale
+          </ng-container>
+          <ng-container *ngIf="scaleMode === CompareScaleMode.DISTANCE">
+            <mat-icon [inline]="true" fontSet="material-icons-outlined">schedule</mat-icon>
+            Time scale
+          </ng-container>
+        </button>
+      </div>
+
+      <app-compare-graph-chart *ngFor="let row of graphRows"
+                               [row]="row"
+                               [scaleMode]="scaleMode"
+                               [measureSystem]="userSettings.systemUnit">
+      </app-compare-graph-chart>
+    </div>
+
+    <mat-tab-group mat-stretch-tabs>
+
+      <mat-tab label="Stats">
+        <ng-template matTabContent>
+          <div *ngFor="let group of statsGroupRows" class="stat-display-group"
+               [style.border-left]="'3px solid ' + group.color">
+            <div class="mat-title" *ngIf="group.name">
+              {{ group.name }}
+            </div>
+            <div class="stat-charts-grid">
+              <app-compare-stat-chart *ngFor="let stat of group.stats"
+                                      [stat]="stat"
+                                      [workouts]="workouts"
+                                      [measureSystem]="userSettings.systemUnit">
+              </app-compare-stat-chart>
+            </div>
+          </div>
+          <div *ngIf="!statsGroupRows.length" class="centered-text pad-lrg-bt">
+            <i>Stats are unavailable on these activities.</i>
+          </div>
+        </ng-template>
+      </mat-tab>
+
+      <mat-tab label="Peaks" *ngIf="peaksRows.length">
+        <ng-template matTabContent>
+          <mat-grid-list cols="2" [rowHeight]="450">
+            <mat-grid-tile fxFlex="100" *ngFor="let row of peaksRows">
+              <app-compare-peak-chart fxFlex="100" [row]="row"
+                                      [measureSystem]="userSettings.systemUnit"></app-compare-peak-chart>
+            </mat-grid-tile>
+          </mat-grid-list>
+        </ng-template>
+      </mat-tab>
+
+    </mat-tab-group>
+
+  </mat-card-content>
+</mat-card>
