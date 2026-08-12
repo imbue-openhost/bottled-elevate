@@ -1,6 +1,6 @@
-# openhost-elevate
+# bottled-elevate
 
-A fork of [Elevate](https://github.com/thomaschampagne/elevate) (fitness analytics) stripped down to run as a single-user web app on [OpenHost](https://github.com/imbue-ai/openhost). Instead of syncing from Strava or local files, it pulls workout data from the OpenHost **health-data service** (provided by apps like `apple-health` / `oura`).
+A fork of [Elevate](https://github.com/thomaschampagne/elevate) (fitness analytics) stripped down to run as a single-user web app on [Cloud in a Bottle](https://github.com/imbue-ai/Cloud in a Bottle). Instead of syncing from Strava or local files, it pulls workout data from the Cloud in a Bottle **health-data service** (provided by apps like `apple-health` / `oura`).
 
 ## Architecture
 
@@ -23,7 +23,7 @@ A fork of [Elevate](https://github.com/thomaschampagne/elevate) (fitness analyti
  └────────────────────────────────────────────────────────┘
 ```
 
-The health-data service is the source of truth; the browser IndexedDB is a local working copy synced from it. Auth is handled by the OpenHost router (the compute-space owner), so the app is single-user.
+The health-data service is the source of truth; the browser IndexedDB is a local working copy synced from it. Auth is handled by the Cloud in a Bottle router (the compute-space owner), so the app is single-user.
 
 ## Layout
 
@@ -51,9 +51,9 @@ node node_modules/jest/bin/jest.js
 cd backend && ELEVATE_STATIC_DIR=../dist/app uvicorn app:app --port 8080
 ```
 
-`/api/*` only works inside OpenHost (it needs `OPENHOST_ROUTER_URL` + `OPENHOST_APP_TOKEN`); locally those routes 500, but the SPA still serves.
+`/api/*` only works inside Cloud in a Bottle (it needs `OPENHOST_ROUTER_URL` + `OPENHOST_APP_TOKEN`); locally those routes 500, but the SPA still serves.
 
-## Deploy on OpenHost
+## Deploy on Cloud in a Bottle
 
 ```bash
 oh app deploy <git-url> --name elevate --instance <instance>
