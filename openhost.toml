@@ -1,7 +1,7 @@
 [app]
 name = "elevate"
 version = "0.1.0"
-description = "Elevate fitness analytics, fed by the OpenHost health-data service"
+description = "Elevate fitness analytics, fed by the Cloud in a Bottle health-data service"
 
 [runtime.container]
 image = "Dockerfile"
